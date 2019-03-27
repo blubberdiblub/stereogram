@@ -1,0 +1,49 @@
+
+html {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+}
+
+*, *::before, *::after {
+    -webkit-box-sizing: inherit;
+    -moz-box-sizing: inherit;
+    box-sizing: inherit;
+}
+
+img {
+    -webkit-box-sizing: content-box;
+    -moz-box-sizing: content-box;
+    box-sizing: content-box;
+}
+
+body {
+    margin: 0;
+}
+
+.table {
+    display: block;
+    overflow: auto;
+}
+
+.table > .row {
+    display: block;
+    line-height: 0;
+}
+
+.table > .row > * {
+    display: inline-block;
+    line-height: initial;
+}
+
+.table > .row canvas {
+    width: 50%;
+    height: 50vh;
+}
+
+canvas {
+    background-color: #0000cc;
+    border: 2px solid red;
+    min-width: 256px;
+    min-height: 144px;
+}
