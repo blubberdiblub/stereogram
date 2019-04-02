@@ -429,11 +429,22 @@ window.addEventListener('load', () => {
             const aspectX = (w > h) ? range * h / w : range;
             const aspectY = (w < h) ? range * w / h : range;
 
+            const zNear = 1.0;
+            const zFar = Infinity;
+
+            let perspZ = 1.0;
+            let perspW = -2.0 * zNear;
+
+            if (zFar < Infinity) {
+                perspZ = (zNear + zFar) / (zFar - zNear);
+                perspW = -2.0 * zNear * zFar / (zFar - zNear);
+            }
+
             this.projection = new Mat4([
                 aspectX, 0.0, 0.0, 0.0,
                 0.0, aspectY, 0.0, 0.0,
-                0.0, 0.0, 1.0, 0.0,
-                0.0, 0.0, 0.0, 1.0,
+                0.0, 0.0, perspZ, 1.0,
+                0.0, 0.0, perspW, 0.0,
             ]);
         }
 
