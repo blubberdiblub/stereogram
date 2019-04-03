@@ -355,8 +355,9 @@ window.addEventListener('load', () => {
             );
 
             this.uniformLocations = {
-                matrix: gl.getUniformLocation(this.program, 'u_matrix'),
-                projection: gl.getUniformLocation(this.program, 'u_projection'),
+                modelMatrix: gl.getUniformLocation(this.program, 'u_model_matrix'),
+                viewMatrix: gl.getUniformLocation(this.program, 'u_view_matrix'),
+                projectionMatrix: gl.getUniformLocation(this.program, 'u_projection_matrix'),
             };
 
             this.attribLocations = {
@@ -403,9 +404,12 @@ window.addEventListener('load', () => {
          * Construct a RenderContext
          * @param {WebGLRenderingContext} gl
          * @param {SceneObject[]} scene
+         * @param {Object} properties
          */
-        constructor(gl, scene) {
+        constructor(gl, scene, properties) {
             this.gl = gl;
+
+            this.view = properties.view || new Mat4();
 
             // this.projection = new Mat4();
             resizeCanvas(gl.canvas);
@@ -481,9 +485,12 @@ window.addEventListener('load', () => {
                 gl.vertexAttribPointer(obj.attribLocations.color, 3, gl.FLOAT, false, 6*4, 3*4);
 
                 const uniformLocations = obj.uniformLocations;
-                gl.uniformMatrix4fv(uniformLocations.matrix, false, sceneObj.matrix.data);
-                if (uniformLocations.projection) {
-                    gl.uniformMatrix4fv(uniformLocations.projection, false, this.projection.data);
+                gl.uniformMatrix4fv(uniformLocations.modelMatrix, false, sceneObj.matrix.data);
+                if (uniformLocations.viewMatrix) {
+                    gl.uniformMatrix4fv(uniformLocations.viewMatrix, false, this.view.data);
+                }
+                if (uniformLocations.projectionMatrix) {
+                    gl.uniformMatrix4fv(uniformLocations.projectionMatrix, false, this.projection.data);
                 }
 
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, obj.indexBuffer);
@@ -543,14 +550,14 @@ window.addEventListener('load', () => {
     /**
      * Build render contexts
      * @param {SceneObject[]} scene
-     * @param {string[]} ids
+     * @param {Object.<string, Object>} contextPropertiesMap
      * @returns {RenderContext[]}
      */
-    function buildContexts(scene, ids) {
+    function buildContexts(scene, contextPropertiesMap) {
         /** @type {RenderContext[]} */
         const renderContexts = [];
 
-        for (const id of ids) {
+        for (const [id, properties] of Object.entries(contextPropertiesMap)) {
             const canvas = /** @type {HTMLCanvasElement} */ document.getElementById(id);
 
             /** @type {WebGLRenderingContext} */
@@ -559,7 +566,7 @@ window.addEventListener('load', () => {
                 continue;
             }
 
-            renderContexts.push(new RenderContext(gl, scene));
+            renderContexts.push(new RenderContext(gl, scene, properties));
         }
 
         return renderContexts;
@@ -585,7 +592,7 @@ window.addEventListener('load', () => {
             );
 
             for (const obj of scene) {
-                obj.matrix = Mat4.mul(Mat4.translation(0.0, 0.0, 2.0), rot);
+                obj.matrix = rot;
             }
 
             for (const ctx of contexts) {
@@ -603,7 +610,17 @@ window.addEventListener('load', () => {
     const scene = buildScene();
 
     /** @type {RenderContext[]} */
-    const contexts = buildContexts(scene, ['render',]);
+    const contexts = buildContexts(scene, {
+        'render': {
+            view: Mat4.translation(0.0, 0.0, 2.0),
+        },
+        'left_eye': {
+            view: Mat4.translation(0.25, 0.0, 2.0),
+        },
+        'right_eye': {
+            view: Mat4.translation(-0.25, 0.0, 2.0),
+        },
+    });
 
     startAnimationLoop(scene, contexts);
 });
