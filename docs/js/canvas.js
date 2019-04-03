@@ -347,11 +347,12 @@ window.addEventListener('load', () => {
          * Construct a RenderObject
          * @param {WebGLRenderingContext} gl
          * @param {SceneObject} sceneObject
+         * @param {Object} properties
          */
-        constructor(gl, sceneObject) {
+        constructor(gl, sceneObject, properties) {
             this.program = compileAndLinkProgram(gl,
                 'shaders/vertex.vert',
-                'shaders/fragment.frag'
+                properties.fragmentShaderUrl || 'shaders/fragment.frag'
             );
 
             this.uniformLocations = {
@@ -409,6 +410,8 @@ window.addEventListener('load', () => {
         constructor(gl, scene, properties) {
             this.gl = gl;
 
+            this.clearColor = properties.clearColor || [0.0, 0.0, 0.0, 0.0,];
+
             this.view = properties.view || new Mat4();
 
             // this.projection = new Mat4();
@@ -417,7 +420,7 @@ window.addEventListener('load', () => {
 
             this.renderObjects = [];
             for (const sceneObject of scene) {
-                const renderObject = new RenderObject(this.gl, sceneObject);
+                const renderObject = new RenderObject(this.gl, sceneObject, properties);
                 this.renderObjects.push(renderObject);
             }
         }
@@ -434,7 +437,7 @@ window.addEventListener('load', () => {
             const aspectY = (w < h) ? range * w / h : range;
 
             const zNear = 1.0;
-            const zFar = Infinity;
+            const zFar = 3.0;
 
             let perspZ = 1.0;
             let perspW = -2.0 * zNear;
@@ -467,6 +470,7 @@ window.addEventListener('load', () => {
             console.assert(gl.drawingBufferHeight === gl.canvas.height);
 
             gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+            gl.clearColor(...this.clearColor);
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
             gl.enable(gl.CULL_FACE);
             gl.enable(gl.DEPTH_TEST);
@@ -476,16 +480,25 @@ window.addEventListener('load', () => {
 
                 gl.useProgram(obj.program);
 
-                gl.enableVertexAttribArray(obj.attribLocations.position);
-                gl.bindBuffer(gl.ARRAY_BUFFER, obj.attribBuffer);
-                gl.vertexAttribPointer(obj.attribLocations.position, 3, gl.FLOAT, false, 6*4, 0);
+                const attribLocations = obj.attribLocations;
 
-                gl.enableVertexAttribArray(obj.attribLocations.color);
-                gl.bindBuffer(gl.ARRAY_BUFFER, obj.attribBuffer);
-                gl.vertexAttribPointer(obj.attribLocations.color, 3, gl.FLOAT, false, 6*4, 3*4);
+                if (attribLocations.position >= 0) {
+                    gl.enableVertexAttribArray(attribLocations.position);
+                    gl.bindBuffer(gl.ARRAY_BUFFER, obj.attribBuffer);
+                    gl.vertexAttribPointer(attribLocations.position, 3, gl.FLOAT, false, 6 * 4, 0);
+                }
+
+                if (attribLocations.color >= 0) {
+                    gl.enableVertexAttribArray(attribLocations.color);
+                    gl.bindBuffer(gl.ARRAY_BUFFER, obj.attribBuffer);
+                    gl.vertexAttribPointer(attribLocations.color, 3, gl.FLOAT, false, 6 * 4, 3 * 4);
+                }
 
                 const uniformLocations = obj.uniformLocations;
-                gl.uniformMatrix4fv(uniformLocations.modelMatrix, false, sceneObj.matrix.data);
+
+                if (uniformLocations.modelMatrix) {
+                    gl.uniformMatrix4fv(uniformLocations.modelMatrix, false, sceneObj.matrix.data);
+                }
                 if (uniformLocations.viewMatrix) {
                     gl.uniformMatrix4fv(uniformLocations.viewMatrix, false, this.view.data);
                 }
@@ -613,12 +626,17 @@ window.addEventListener('load', () => {
     const contexts = buildContexts(scene, {
         'render': {
             view: Mat4.translation(0.0, 0.0, 2.0),
+            fragmentShaderUrl: 'shaders/fragment.frag',
         },
         'left_eye': {
             view: Mat4.translation(0.25, 0.0, 2.0),
+            fragmentShaderUrl: 'shaders/depthmap.frag',
+            clearColor: [1.0, 1.0, 1.0, 1.0,],
         },
         'right_eye': {
             view: Mat4.translation(-0.25, 0.0, 2.0),
+            fragmentShaderUrl: 'shaders/depthmap.frag',
+            clearColor: [1.0, 1.0, 1.0, 1.0,],
         },
     });
 
