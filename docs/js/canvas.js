@@ -29,29 +29,27 @@ window.addEventListener('load', () => {
      * @param {WebGLRenderingContext} gl
      * @param {GLenum} type
      * @param {string} source
-     * @returns {?WebGLShader}
+     * @returns {WebGLShader}
      */
     function createShader(gl, type, source) {
         const shader = gl.createShader(type);
         gl.shaderSource(shader, source);
         gl.compileShader(shader);
 
-        const success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
-        if (success) {
-            return shader;
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            const msg = gl.getShaderInfoLog(shader);
+            gl.deleteShader(shader);
+            throw Error(msg);
         }
 
-        console.error(gl.getShaderInfoLog(shader));
-        gl.deleteShader(shader);
-
-        return null;
+        return shader;
     }
 
     /**
      * Create a vertex shader from a URL
      * @param {WebGLRenderingContext} gl
      * @param {string} url
-     * @returns {?WebGLShader}
+     * @returns {WebGLShader}
      */
     function createVertexShader(gl, url) {
         let source;
@@ -73,7 +71,7 @@ window.addEventListener('load', () => {
      * Create a fragment shader from a URL
      * @param {WebGLRenderingContext} gl
      * @param {string} url
-     * @returns {?WebGLShader}
+     * @returns {WebGLShader}
      */
     function createFragmentShader(gl, url) {
         let source;
@@ -94,25 +92,24 @@ window.addEventListener('load', () => {
     /**
      * Create a shader program from compiled vertex and fragment shaders
      * @param {WebGLRenderingContext} gl
-     * @param {WebGLShader} vertexShader
-     * @param {WebGLShader} fragmentShader
-     * @returns {?WebGLProgram}
+     * @param {WebGLShader[]} shaders
+     * @returns {WebGLProgram}
      */
-    function createProgram(gl, vertexShader, fragmentShader) {
+    function createProgram(gl, shaders) {
         const program = gl.createProgram();
-        gl.attachShader(program, vertexShader);
-        gl.attachShader(program, fragmentShader);
-        gl.linkProgram(program);
 
-        const success = gl.getProgramParameter(program, gl.LINK_STATUS);
-        if (success) {
-            return program;
+        for (const shader of shaders) {
+            gl.attachShader(program, shader);
         }
 
-        console.error(gl.getProgramInfoLog(program));
-        gl.deleteProgram(program);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            const msg = gl.getProgramInfoLog(program);
+            gl.deleteProgram(program);
+            throw Error(msg);
+        }
 
-        return null;
+        return program;
     }
 
     /**
@@ -120,28 +117,23 @@ window.addEventListener('load', () => {
      * @param {WebGLRenderingContext} gl
      * @param {string} vertexShaderUrl
      * @param {string} fragmentShaderUrl
-     * @returns {?WebGLProgram}
+     * @returns {WebGLProgram}
      */
     function compileAndLinkProgram(gl, vertexShaderUrl, fragmentShaderUrl) {
-        const vertexShader = createVertexShader(gl, vertexShaderUrl);
-        if (vertexShader === null) {
-            return null;
-        }
+        const shaders = [];
 
-        const fragmentShader = createFragmentShader(gl, fragmentShaderUrl);
-        if (fragmentShader === null) {
-            gl.deleteShader(vertexShader);
-            return null;
+        try {
+            shaders.push(createVertexShader(gl, vertexShaderUrl));
+            shaders.push(createFragmentShader(gl, fragmentShaderUrl));
+            return createProgram(gl, shaders);
         }
+        catch (e) {
+            for (const shader of shaders) {
+                gl.deleteShader(shader);
+            }
 
-        const program = createProgram(gl, vertexShader, fragmentShader);
-        if (program === null) {
-            gl.deleteShader(fragmentShader);
-            gl.deleteShader(vertexShader);
-            return null;
+            throw e;
         }
-
-        return program;
     }
 
     class Mat4 {
