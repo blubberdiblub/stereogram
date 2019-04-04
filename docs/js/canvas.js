@@ -329,15 +329,17 @@ window.addEventListener('load', () => {
          * Construct a SceneObject
          * @param {number[]} attribs
          * @param {number[]} indices
+         * @param {number|null} [inclusionFlags]
          * @param {Mat4} [matrix]
          */
-        constructor(attribs, indices, matrix) {
+        constructor(attribs, indices, inclusionFlags, matrix) {
             this.attribs = new Float32Array(attribs);
 
             const maxIndex = indices.reduce((runningMax, idx) => Math.max(runningMax, idx));
             const indexArray = (maxIndex <= 255) ? Uint8Array : Uint16Array;
             this.indices = new indexArray(indices);
 
+            this.inclusionFlags = (inclusionFlags === undefined || inclusionFlags === null) ? ~0 : inclusionFlags;
             this.matrix = matrix || new Mat4();
         }
     }
@@ -381,25 +383,6 @@ window.addEventListener('load', () => {
         }
     }
 
-    /**
-     * Ensure the backing buffer of the canvas has the right size
-     * @param {HTMLCanvasElement} canvas
-     * @returns {boolean}
-     */
-    function resizeCanvas(canvas) {
-        const width = Math.ceil(canvas.scrollWidth);
-        // noinspection JSSuspiciousNameCombination
-        const height = Math.ceil(canvas.scrollHeight);
-
-        if (width === canvas.width && height === canvas.height) {
-            return false;
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        return true;
-    }
-
     class RenderContext {
         /**
          * Construct a RenderContext
@@ -414,44 +397,71 @@ window.addEventListener('load', () => {
 
             this.view = properties.view || new Mat4();
 
-            // this.projection = new Mat4();
-            resizeCanvas(gl.canvas);
+            this.fiddleCanvas(true);
+
+            this.fieldOfView = properties.fieldOfView || 90.0;
+            this.zNear = properties.zNear || 1.0;
+            this.zFar = properties.zFar || Infinity;
+
             this.calculatePerspective();
+
+            const inclusionFlags = properties.inclusionFlags === undefined ? ~0 : properties.inclusionFlags;
 
             this.renderObjects = [];
             for (const sceneObject of scene) {
+                if (!(sceneObject.inclusionFlags & inclusionFlags)) {
+                    continue;
+                }
+
                 const renderObject = new RenderObject(this.gl, sceneObject, properties);
                 this.renderObjects.push(renderObject);
             }
         }
 
         /**
+         * Ensure the backing buffer of the canvas has the right size
+         * @param {boolean} [force]
+         * @returns {boolean}
+         */
+        fiddleCanvas(force) {
+            const canvas = this.gl.canvas;
+
+            const width = Math.ceil(canvas.scrollWidth);
+            // noinspection JSSuspiciousNameCombination
+            const height = Math.ceil(canvas.scrollHeight);
+
+            if (!force && width === canvas.width && height === canvas.height) {
+                return false;
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+
+            this.aspectX = (width > height) ? height / width : 1.0;
+            this.aspectY = (width < height) ? width / height : 1.0;
+
+            return true;
+        }
+
+        /**
          * Calculate perspective matrix taking current aspect ratio into account
          */
         calculatePerspective() {
-            const fov = 90.0;
-            const range = Math.tan(Math.PI * 0.5 * (1.0 - fov / 180.0));
+            const range = Math.tan(Math.PI * 0.5 * (1.0 - this.fieldOfView / 180.0));
+            const viewRangeX = range * this.aspectX;
+            const viewRangeY = range * this.aspectY;
 
-            const {scrollWidth: w, scrollHeight: h} = this.gl.canvas;
-            const aspectX = (w > h) ? range * h / w : range;
-            const aspectY = (w < h) ? range * w / h : range;
+            const zNear = this.zNear;
+            const zFar = this.zFar;
 
-            const zNear = 1.0;
-            const zFar = 3.0;
-
-            let perspZ = 1.0;
-            let perspW = -2.0 * zNear;
-
-            if (zFar < Infinity) {
-                perspZ = (zNear + zFar) / (zFar - zNear);
-                perspW = -2.0 * zNear * zFar / (zFar - zNear);
-            }
+            const perspectiveZ = (zFar < Infinity) ? (zNear + zFar) / (zFar - zNear) : 1.0;
+            const perspectiveW = (zFar < Infinity) ? -2.0 * zNear * zFar / (zFar - zNear) : -2.0 * zNear;
 
             this.projection = new Mat4([
-                aspectX, 0.0, 0.0, 0.0,
-                0.0, aspectY, 0.0, 0.0,
-                0.0, 0.0, perspZ, 1.0,
-                0.0, 0.0, perspW, 0.0,
+                viewRangeX, 0.0, 0.0, 0.0,
+                0.0, viewRangeY, 0.0, 0.0,
+                0.0, 0.0, perspectiveZ, 1.0,
+                0.0, 0.0, perspectiveW, 0.0,
             ]);
         }
 
@@ -461,8 +471,7 @@ window.addEventListener('load', () => {
         render() {
             const gl = this.gl;
 
-            const canvasChanged = resizeCanvas(gl.canvas);
-            if (canvasChanged) {
+            if (this.fiddleCanvas()) {
                 this.calculatePerspective();
             }
 
@@ -511,6 +520,12 @@ window.addEventListener('load', () => {
             }
         }
     }
+
+    const renderInclusion = {
+        NORMAL: 1 << 0,
+        EYE_DEMO: 1 << 1,
+        STEREOGRAM: 1 << 2,
+    };
 
     /**
      * Build the 3D scene
@@ -627,16 +642,25 @@ window.addEventListener('load', () => {
         'render': {
             view: Mat4.translation(0.0, 0.0, 2.0),
             fragmentShaderUrl: 'shaders/fragment.frag',
+            inclusionFlags: renderInclusion.NORMAL,
+            zNear: 1.0,
+            zFar: 3.0,
         },
         'left_eye': {
             view: Mat4.translation(0.25, 0.0, 2.0),
             fragmentShaderUrl: 'shaders/depthmap.frag',
             clearColor: [1.0, 1.0, 1.0, 1.0,],
+            inclusionFlags: renderInclusion.EYE_DEMO,
+            zNear: 1.0,
+            zFar: 3.0,
         },
         'right_eye': {
             view: Mat4.translation(-0.25, 0.0, 2.0),
             fragmentShaderUrl: 'shaders/depthmap.frag',
             clearColor: [1.0, 1.0, 1.0, 1.0,],
+            inclusionFlags: renderInclusion.EYE_DEMO,
+            zNear: 1.0,
+            zFar: 3.0,
         },
     });
 
