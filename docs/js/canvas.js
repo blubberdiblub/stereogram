@@ -3,8 +3,10 @@ window.addEventListener('load', () => {
 
     /**
      * Load shader source code from a web site resource
+     *
      * @param {string} url
      * @param {string} mime
+     *
      * @returns {string}
      */
     function loadShader(url, mime) {
@@ -26,9 +28,11 @@ window.addEventListener('load', () => {
 
     /**
      * Compile a shader from source code
+     *
      * @param {WebGLRenderingContext} gl
      * @param {GLenum} type
      * @param {string} source
+     *
      * @returns {WebGLShader}
      */
     function createShader(gl, type, source) {
@@ -47,8 +51,10 @@ window.addEventListener('load', () => {
 
     /**
      * Create a vertex shader from a URL
+     *
      * @param {WebGLRenderingContext} gl
      * @param {string} url
+     *
      * @returns {WebGLShader}
      */
     function createVertexShader(gl, url) {
@@ -69,8 +75,10 @@ window.addEventListener('load', () => {
 
     /**
      * Create a fragment shader from a URL
+     *
      * @param {WebGLRenderingContext} gl
      * @param {string} url
+     *
      * @returns {WebGLShader}
      */
     function createFragmentShader(gl, url) {
@@ -91,8 +99,10 @@ window.addEventListener('load', () => {
 
     /**
      * Create a shader program from compiled vertex and fragment shaders
+     *
      * @param {WebGLRenderingContext} gl
      * @param {WebGLShader[]} shaders
+     *
      * @returns {WebGLProgram}
      */
     function createProgram(gl, shaders) {
@@ -114,9 +124,11 @@ window.addEventListener('load', () => {
 
     /**
      * Create a shader program from vertex and fragment shader URLs
+     *
      * @param {WebGLRenderingContext} gl
      * @param {string} vertexShaderUrl
      * @param {string} fragmentShaderUrl
+     *
      * @returns {WebGLProgram}
      */
     function compileAndLinkProgram(gl, vertexShaderUrl, fragmentShaderUrl) {
@@ -136,10 +148,20 @@ window.addEventListener('load', () => {
         }
     }
 
+    /**
+     * 4x4 matrix for coordinate transformations
+     *
+     * Note that when you lay out the values consecutively, it will look as
+     * though they were transposed from how you write them mathematically or
+     * how the Khronos(R) Group OpenGL documentation presents them.
+     *
+     * In reality this is just a convention to be able to deal with them more
+     * efficiently. But you need to be aware of it when reading matrix value
+     * or writing code.
+     */
     class Mat4 {
         /**
-         * Construct a 4x4 matrix
-         * @param {Mat4|number[]} [data]
+         * @param {(Mat4|number[])} [data]
          */
         constructor(data) {
             if (data === undefined) {
@@ -165,37 +187,43 @@ window.addEventListener('load', () => {
 
         /**
          * Create a new scaling matrix
-         * @param {number} factor
+         *
+         * @param {number} k
+         *
          * @returns {Mat4}
          */
-        static scaling(factor) {
+        static scaling(k) {
             return new Mat4([
-                factor, 0.0, 0.0, 0.0,
-                0.0, factor, 0.0, 0.0,
-                0.0, 0.0, factor, 0.0,
+                 k , 0.0, 0.0, 0.0,
+                0.0,  k , 0.0, 0.0,
+                0.0, 0.0,  k , 0.0,
                 0.0, 0.0, 0.0, 1.0,
             ]);
         }
 
         /**
          * Create a new translation matrix
-         * @param {number} x
-         * @param {number} y
-         * @param {number} z
+         *
+         * @param {number} [x=0.0]
+         * @param {number} [y=0.0]
+         * @param {number} [z=0.0]
+         *
          * @returns {Mat4}
          */
-        static translation(x, y, z) {
+        static translation(x=0.0, y=0.0, z=0.0) {
             return new Mat4([
                 1.0, 0.0, 0.0, 0.0,
                 0.0, 1.0, 0.0, 0.0,
                 0.0, 0.0, 1.0, 0.0,
-                x, y, z, 1.0,
+                 x ,  y ,  z , 1.0,
             ]);
         }
 
         /**
          * Create a new rotation matrix around the X axis
+         *
          * @param {number} angle
+         *
          * @returns {Mat4}
          */
         static rotationX(angle) {
@@ -205,15 +233,17 @@ window.addEventListener('load', () => {
 
             return new Mat4([
                 1.0, 0.0, 0.0, 0.0,
-                0.0, c, -s, 0.0,
-                0.0, s, c, 0.0,
+                0.0,  c , -s , 0.0,
+                0.0,  s ,  c , 0.0,
                 0.0, 0.0, 0.0, 1.0,
             ]);
         }
 
         /**
          * Create a new rotation matrix around the Y axis
+         *
          * @param {number} angle
+         *
          * @returns {Mat4}
          */
         static rotationY(angle) {
@@ -222,16 +252,18 @@ window.addEventListener('load', () => {
             const s = Math.sin(rad);
 
             return new Mat4([
-                c, 0.0, s, 0.0,
+                 c , 0.0,  s , 0.0,
                 0.0, 1.0, 0.0, 0.0,
-                -s, 0.0, c, 0.0,
+                -s , 0.0,  c , 0.0,
                 0.0, 0.0, 0.0, 1.0,
             ]);
         }
 
         /**
          * Create a new rotation matrix around the Z axis
+         *
          * @param {number} angle
+         *
          * @returns {Mat4}
          */
         static rotationZ(angle) {
@@ -240,8 +272,8 @@ window.addEventListener('load', () => {
             const s = Math.sin(rad);
 
             return new Mat4([
-                c, -s, 0.0, 0.0,
-                s, c, 0.0, 0.0,
+                 c , -s , 0.0, 0.0,
+                 s ,  c , 0.0, 0.0,
                 0.0, 0.0, 1.0, 0.0,
                 0.0, 0.0, 0.0, 1.0,
             ]);
@@ -249,14 +281,15 @@ window.addEventListener('load', () => {
 
         /**
          * Return the transposition of this matrix
+         *
          * @returns {Mat4}
          */
         transposition() {
             const data = this.data;
 
             return new Mat4([
-                data[0], data[4], data[8], data[12],
-                data[1], data[5], data[9], data[13],
+                data[0], data[4], data[ 8], data[12],
+                data[1], data[5], data[ 9], data[13],
                 data[2], data[6], data[10], data[14],
                 data[3], data[7], data[11], data[15],
             ]);
@@ -265,8 +298,10 @@ window.addEventListener('load', () => {
         /**
          * Return the result of matrix multiplication
          * applied to this and a second matrix
+         *
          * @param {Mat4} m1
          * @param {Mat4} m2
+         *
          * @returns {Mat4}
          */
         static mul(m1, m2) {
@@ -316,38 +351,86 @@ window.addEventListener('load', () => {
         0.0, 0.0, 0.0, 1.0,
     ]);
 
+    /**
+     * Buffer usage modes to help WebGL make optimization decisions
+     *
+     * They are made available independent from a WebGL context
+     * so they can be used with more abstract scene objects.
+     *
+     * @enum {number}
+     * @readonly
+     */
+    const bufferUsage = {
+        STATIC_DRAW: 1,
+        DYNAMIC_DRAW: 2,
+        STREAM_DRAW: 3,
+
+        toGLUsage(gl, usage) {
+            switch (usage) {
+                case bufferUsage.STATIC_DRAW:
+                    return gl.STATIC_DRAW;
+                case bufferUsage.DYNAMIC_DRAW:
+                    return gl.DYNAMIC_DRAW;
+                case bufferUsage.STREAM_DRAW:
+                    return gl.STREAM_DRAW;
+                default:
+                    throw Error("unknown bufferUsage");
+            }
+        },
+    };
+
+    /**
+     * Manipulable object in a scene
+     */
     class SceneObject {
         /**
-         * Construct a SceneObject
          * @param {number[]} attribs
-         * @param {number[]} indices
-         * @param {number|null} [inclusionFlags]
-         * @param {Mat4} [matrix]
+         * @param {Object} indexBuffers
+         * @param {Object[]} drawElements
+         * @param {Object} properties
+         * @property {number} [inclusionFlags]
+         * @property {Mat4} [matrix]
          */
-        constructor(attribs, indices, inclusionFlags, matrix) {
+        constructor(attribs, indexBuffers = {}, drawElements = [], {inclusionFlags = ~0, matrix = new Mat4()} = {}) {
             this.attribs = new Float32Array(attribs);
 
-            const maxIndex = indices.reduce((runningMax, idx) => Math.max(runningMax, idx));
-            const indexArray = (maxIndex <= 255) ? Uint8Array : Uint16Array;
-            this.indices = new indexArray(indices);
+            this.indexBuffers = {};
+            for (const [key, {indices, inclusionFlags = ~0, usage = bufferUsage.STATIC_DRAW}]
+                    of Object.entries(indexBuffers)) {
 
-            this.inclusionFlags = (inclusionFlags === undefined || inclusionFlags === null) ? ~0 : inclusionFlags;
-            this.matrix = matrix || new Mat4();
+                const maxIndex = indices.reduce((runningMax, idx) => Math.max(runningMax, idx));
+                const indexArray = (maxIndex <= 255) ? Uint8Array : Uint16Array;
+
+                this.indexBuffers[key] = {
+                    indices: new indexArray(indices),
+                    inclusionFlags,
+                    usage,
+                };
+            }
+
+            this.drawElements = drawElements;
+            this.inclusionFlags = inclusionFlags;
+            this.matrix = matrix;
         }
     }
 
+    /**
+     * Renderable instance of a scene object home to a particular WebGL context
+     */
     class RenderObject {
         /**
-         * Construct a RenderObject
          * @param {WebGLRenderingContext} gl
          * @param {SceneObject} sceneObject
          * @param {Object} properties
+         * @property {string} vertexShaderUrl
+         * @property {string} fragmentShaderUrl
          */
-        constructor(gl, sceneObject, properties) {
-            this.program = compileAndLinkProgram(gl,
-                'shaders/vertex.vert',
-                properties.fragmentShaderUrl || 'shaders/fragment.frag'
-            );
+        constructor(gl, sceneObject, {
+            inclusionFlags: contextInclusionFlags,
+            vertexShaderUrl = 'shaders/vertex.vert',
+            fragmentShaderUrl = 'shaders/fragment.frag',
+        }) {
+            this.program = compileAndLinkProgram(gl, vertexShaderUrl, fragmentShaderUrl);
 
             this.uniformLocations = {
                 modelMatrix: gl.getUniformLocation(this.program, 'u_model_matrix'),
@@ -361,43 +444,116 @@ window.addEventListener('load', () => {
             };
 
             this.attribBuffer = gl.createBuffer();
-            this.indexBuffer = gl.createBuffer();
-
             gl.bindBuffer(gl.ARRAY_BUFFER, this.attribBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, sceneObject.attribs, gl.STATIC_DRAW);
 
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, sceneObject.indices, gl.STATIC_DRAW);
+            this.drawElements = [];
+            for (const {bufferKey, drawMode, slice = null, inclusionFlags = ~0} of sceneObject.drawElements) {
+                if (!(inclusionFlags & contextInclusionFlags)) {
+                    continue;
+                }
 
-            this.indexType = sceneObject.indices instanceof Uint8Array ? gl.UNSIGNED_BYTE : gl.UNSIGNED_SHORT;
+                const {indices, usage} = sceneObject.indexBuffers[bufferKey];
+
+                const buffer = gl.createBuffer();
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
+                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, bufferUsage.toGLUsage(gl, usage));
+
+                this.drawElements.push({
+                    buffer,
+                    mode: RenderObject._toDrawMode(gl, drawMode),
+                    count: slice ? slice[1] - slice[0] : indices.length,
+                    type: RenderObject._toBufferType(gl, indices),
+                    offset: slice ? slice[0] : 0,
+                });
+            }
 
             this.sceneObject = sceneObject;
         }
+
+        /**
+         * Determine GL mode for drawing elements
+         *
+         * @private
+         *
+         * @param {WebGLRenderingContext} gl
+         * @param {string} drawMode
+         *
+         * @returns {GLenum}
+         */
+        static _toDrawMode(gl, drawMode) {
+            switch (drawMode) {
+                case 'TRIANGLES':
+                    return gl.TRIANGLES;
+                case 'TRIANGLE_FAN':
+                    return gl.TRIANGLE_FAN;
+                case 'TRIANGLE_STRIP':
+                    return gl.TRIANGLE_STRIP;
+                default:
+                    throw Error("unknown draw mode");
+            }
+        }
+
+        /**
+         * Determine GL value type for an Element Array
+         *
+         * @private
+         *
+         * @param {WebGLRenderingContext} gl
+         * @param {ArrayBuffer} indexArray
+         *
+         * @returns {GLenum}
+         */
+        static _toBufferType(gl, indexArray) {
+            if (indexArray instanceof Uint8Array) {
+                return gl.UNSIGNED_BYTE;
+            }
+
+            if (indexArray instanceof Uint16Array) {
+                return gl.UNSIGNED_INT;
+            }
+
+            throw Error("unsupported index array type");
+        }
     }
 
+    /**
+     * Context encapsulating a WebGL context, RenderObjects, some properties
+     * and methods for rendering
+     */
     class RenderContext {
         /**
-         * Construct a RenderContext
          * @param {WebGLRenderingContext} gl
          * @param {SceneObject[]} scene
          * @param {Object} properties
+         * @property {number[]} clearColor
+         * @property {Mat4} view
+         * @property {number} fieldOfView
+         * @property {number} zNear
+         * @property {number} zFar
+         * @property {number} inclusionFlags
          */
-        constructor(gl, scene, properties) {
+        constructor(gl, scene, {
+            clearColor = [0.0, 0.0, 0.0, 0.0],
+            view = new Mat4(),
+            fieldOfView = 90.0,
+            zNear = 1.0,
+            zFar = Infinity,
+            inclusionFlags = ~0,
+            ...objectProperties
+        }) {
             this.gl = gl;
 
-            this.clearColor = properties.clearColor || [0.0, 0.0, 0.0, 0.0,];
-
-            this.view = properties.view || new Mat4();
+            this.clearColor = clearColor;
+            this.view = view;
 
             this.fiddleCanvas(true);
 
-            this.fieldOfView = properties.fieldOfView || 90.0;
-            this.zNear = properties.zNear || 1.0;
-            this.zFar = properties.zFar || Infinity;
+            this.fieldOfView = fieldOfView;
+            this.zNear = zNear;
+            this.zFar = zFar;
 
             this.calculatePerspective();
-
-            const inclusionFlags = properties.inclusionFlags === undefined ? ~0 : properties.inclusionFlags;
 
             this.renderObjects = [];
             for (const sceneObject of scene) {
@@ -405,14 +561,16 @@ window.addEventListener('load', () => {
                     continue;
                 }
 
-                const renderObject = new RenderObject(this.gl, sceneObject, properties);
+                const renderObject = new RenderObject(this.gl, sceneObject, Object.assign({inclusionFlags}, objectProperties));
                 this.renderObjects.push(renderObject);
             }
         }
 
         /**
          * Ensure the backing buffer of the canvas has the right size
+         *
          * @param {boolean} [force]
+         *
          * @returns {boolean}
          */
         fiddleCanvas(force) {
@@ -458,7 +616,7 @@ window.addEventListener('load', () => {
         }
 
         /**
-         * Render context
+         * Render objects with current settings
          */
         render() {
             const gl = this.gl;
@@ -507,12 +665,20 @@ window.addEventListener('load', () => {
                     gl.uniformMatrix4fv(uniformLocations.projectionMatrix, false, this.projection.data);
                 }
 
-                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, obj.indexBuffer);
-                gl.drawElements(gl.TRIANGLES, sceneObj.indices.length, obj.indexType, 0);
+                for (const {buffer, mode, count, type, offset} of obj.drawElements) {
+                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
+                    gl.drawElements(mode, count, type, offset);
+                }
             }
         }
     }
 
+    /**
+     * Semantic flags to determine what to render in which context
+     *
+     * @enum {number}
+     * @readonly
+     */
     const renderInclusion = {
         NORMAL: 1 << 0,
         EYE_DEMO: 1 << 1,
@@ -521,6 +687,7 @@ window.addEventListener('load', () => {
 
     /**
      * Build the 3D scene
+     *
      * @returns {SceneObject[]}
      */
     function buildScene() {
@@ -556,21 +723,32 @@ window.addEventListener('load', () => {
                 -0.5,  0.5,  0.5,   1.0, 1.0, 1.0,
                  0.5, -0.5,  0.5,   1.0, 1.0, 1.0,
                  0.5,  0.5,  0.5,   1.0, 1.0, 1.0,
-            ], [
-                 0,  1,  2,    3,  2,  1,
-                 4,  5,  6,    7,  6,  5,
-                 8,  9, 10,   11, 10,  9,
-                12, 13, 14,   15, 14, 13,
-                16, 17, 18,   19, 18, 17,
-                20, 21, 22,   23, 22, 21,
+            ], {
+                main: {
+                    indices: [
+                        0,  1,  2,    3,  2,  1,
+                        4,  5,  6,    7,  6,  5,
+                        8,  9, 10,   11, 10,  9,
+                        12, 13, 14,   15, 14, 13,
+                        16, 17, 18,   19, 18, 17,
+                        20, 21, 22,   23, 22, 21,
+                    ],
+                },
+            }, [
+                {
+                    bufferKey: 'main',
+                    drawMode: 'TRIANGLES',
+                },
             ]),
         ];
     }
 
     /**
      * Build render contexts
+     *
      * @param {SceneObject[]} scene
      * @param {Object.<string, Object>} contextPropertiesMap
+     *
      * @returns {RenderContext[]}
      */
     function buildContexts(scene, contextPropertiesMap) {
@@ -593,7 +771,8 @@ window.addEventListener('load', () => {
     }
 
     /**
-     * Set up regular rendering
+     * Set up recurring rendering
+     *
      * @param {SceneObject[]} scene
      * @param {RenderContext[]} contexts
      */
@@ -601,7 +780,7 @@ window.addEventListener('load', () => {
         let then;
 
         /**
-         * @callback
+         * @callback FrameRequestCallback
          * @param {DOMHighResTimeStamp} now
          */
         const renderAnimationCallback = (now) => {
@@ -626,35 +805,38 @@ window.addEventListener('load', () => {
         requestAnimationFrame(renderAnimationCallback);
     }
 
-    /** @type {SceneObject[]} */
-    const scene = buildScene();
+    /* TODO: combine named function above into this anonymous one */
+    (() => {
+        /** @type {SceneObject[]} */
+        const scene = buildScene();
 
-    /** @type {RenderContext[]} */
-    const contexts = buildContexts(scene, {
-        'render': {
-            view: Mat4.translation(0.0, 0.0, 2.0),
-            fragmentShaderUrl: 'shaders/fragment.frag',
-            inclusionFlags: renderInclusion.NORMAL,
-            zNear: 1.0,
-            zFar: 3.0,
-        },
-        'left_eye': {
-            view: Mat4.translation(0.25, 0.0, 2.0),
-            fragmentShaderUrl: 'shaders/depthmap.frag',
-            clearColor: [1.0, 1.0, 1.0, 1.0,],
-            inclusionFlags: renderInclusion.EYE_DEMO,
-            zNear: 1.0,
-            zFar: 3.0,
-        },
-        'right_eye': {
-            view: Mat4.translation(-0.25, 0.0, 2.0),
-            fragmentShaderUrl: 'shaders/depthmap.frag',
-            clearColor: [1.0, 1.0, 1.0, 1.0,],
-            inclusionFlags: renderInclusion.EYE_DEMO,
-            zNear: 1.0,
-            zFar: 3.0,
-        },
-    });
+        /** @type {RenderContext[]} */
+        const contexts = buildContexts(scene, {
+            'render': {
+                view: Mat4.translation(0.0, 0.0, 2.0),
+                fragmentShaderUrl: 'shaders/fragment.frag',
+                inclusionFlags: renderInclusion.NORMAL,
+                zNear: 1.0,
+                zFar: 3.0,
+            },
+            'left_eye': {
+                view: Mat4.translation(0.25, 0.0, 2.0),
+                fragmentShaderUrl: 'shaders/depthmap.frag',
+                clearColor: [1.0, 1.0, 1.0, 1.0,],
+                inclusionFlags: renderInclusion.EYE_DEMO,
+                zNear: 1.0,
+                zFar: 3.0,
+            },
+            'right_eye': {
+                view: Mat4.translation(-0.25, 0.0, 2.0),
+                fragmentShaderUrl: 'shaders/depthmap.frag',
+                clearColor: [1.0, 1.0, 1.0, 1.0,],
+                inclusionFlags: renderInclusion.EYE_DEMO,
+                zNear: 1.0,
+                zFar: 3.0,
+            },
+        });
 
-    startAnimationLoop(scene, contexts);
+        startAnimationLoop(scene, contexts);
+    })();
 });
