@@ -365,6 +365,14 @@ window.addEventListener('load', () => {
         DYNAMIC_DRAW: 2,
         STREAM_DRAW: 3,
 
+        /**
+         * Determine WebGL usage for optimizing buffers
+         *
+         * @param {WebGLRenderingContext} gl
+         * @param {bufferUsage} usage
+         *
+         * @returns {GLenum}
+         */
         toGLUsage(gl, usage) {
             switch (usage) {
                 case bufferUsage.STATIC_DRAW:
@@ -377,6 +385,42 @@ window.addEventListener('load', () => {
                     throw Error("unknown bufferUsage");
             }
         },
+    };
+
+    /**
+     * Draw modes which determine how indices or attributes are
+     * structured into drawing primitives
+     *
+     * The are subsequently translated into their respective WebGL modes.
+     *
+     * @enum {number}
+     * @readonly
+     */
+    const drawMode = {
+        TRIANGLES: 1,
+        TRIANGLE_FAN: 2,
+        TRIANGLE_STRIP: 3,
+
+        /**
+         * Determine WebGL mode for drawing elements
+         *
+         * @param {WebGLRenderingContext} gl
+         * @param {drawMode} mode
+         *
+         * @returns {GLenum}
+         */
+        toGLMode(gl, mode) {
+            switch (mode) {
+                case drawMode.TRIANGLES:
+                    return gl.TRIANGLES;
+                case drawMode.TRIANGLE_FAN:
+                    return gl.TRIANGLE_FAN;
+                case drawMode.TRIANGLE_STRIP:
+                    return gl.TRIANGLE_STRIP;
+                default:
+                    throw Error("unknown drawMode");
+            }
+        }
     };
 
     /**
@@ -448,7 +492,7 @@ window.addEventListener('load', () => {
             gl.bufferData(gl.ARRAY_BUFFER, sceneObject.attribs, gl.STATIC_DRAW);
 
             this.drawElements = [];
-            for (const {bufferKey, drawMode, slice = null, inclusionFlags = ~0} of sceneObject.drawElements) {
+            for (const {bufferKey, mode, slice = null, inclusionFlags = ~0} of sceneObject.drawElements) {
                 if (!(inclusionFlags & contextInclusionFlags)) {
                     continue;
                 }
@@ -461,7 +505,7 @@ window.addEventListener('load', () => {
 
                 this.drawElements.push({
                     buffer,
-                    mode: RenderObject._toDrawMode(gl, drawMode),
+                    mode: drawMode.toGLMode(gl, mode),
                     count: slice ? slice[1] - slice[0] : indices.length,
                     type: RenderObject._toBufferType(gl, indices),
                     offset: slice ? slice[0] : 0,
@@ -469,29 +513,6 @@ window.addEventListener('load', () => {
             }
 
             this.sceneObject = sceneObject;
-        }
-
-        /**
-         * Determine GL mode for drawing elements
-         *
-         * @private
-         *
-         * @param {WebGLRenderingContext} gl
-         * @param {string} drawMode
-         *
-         * @returns {GLenum}
-         */
-        static _toDrawMode(gl, drawMode) {
-            switch (drawMode) {
-                case 'TRIANGLES':
-                    return gl.TRIANGLES;
-                case 'TRIANGLE_FAN':
-                    return gl.TRIANGLE_FAN;
-                case 'TRIANGLE_STRIP':
-                    return gl.TRIANGLE_STRIP;
-                default:
-                    throw Error("unknown draw mode");
-            }
         }
 
         /**
@@ -737,7 +758,7 @@ window.addEventListener('load', () => {
             }, [
                 {
                     bufferKey: 'main',
-                    drawMode: 'TRIANGLES',
+                    mode: drawMode.TRIANGLES,
                 },
             ]),
         ];
