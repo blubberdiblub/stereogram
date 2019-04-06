@@ -299,26 +299,25 @@ window.addEventListener('load', () => {
          * Return the result of matrix multiplication
          * applied to this and a second matrix
          *
-         * @param {Mat4} m1
-         * @param {Mat4} m2
+         * @param {Mat4} a
+         * @param {Mat4} b
          *
          * @returns {Mat4}
          */
-        static mul(m1, m2) {
-            const a = m1.data;
-            const b = m2.data;
+        static mul(a, b) {
+            const [
+                a00, a10, a20, a30,
+                a01, a11, a21, a31,
+                a02, a12, a22, a32,
+                a03, a13, a23, a33,
+            ] = a.data;
 
-            const
-                a00 = a[ 0], a10 = a[ 1], a20 = a[ 2], a30 = a[ 3],
-                a01 = a[ 4], a11 = a[ 5], a21 = a[ 6], a31 = a[ 7],
-                a02 = a[ 8], a12 = a[ 9], a22 = a[10], a32 = a[11],
-                a03 = a[12], a13 = a[13], a23 = a[14], a33 = a[15];
-
-            const
-                b00 = b[ 0], b10 = b[ 1], b20 = b[ 2], b30 = b[ 3],
-                b01 = b[ 4], b11 = b[ 5], b21 = b[ 6], b31 = b[ 7],
-                b02 = b[ 8], b12 = b[ 9], b22 = b[10], b32 = b[11],
-                b03 = b[12], b13 = b[13], b23 = b[14], b33 = b[15];
+            const [
+                b00, b10, b20, b30,
+                b01, b11, b21, b31,
+                b02, b12, b22, b32,
+                b03, b13, b23, b33,
+            ] = b.data;
 
             return new Mat4([
                 a00 * b00 + a01 * b10 + a02 * b20 + a03 * b30,
