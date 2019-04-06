@@ -119,6 +119,13 @@ window.addEventListener('load', () => {
             throw Error(msg);
         }
 
+        gl.validateProgram(program);
+        if (!gl.getProgramParameter(program, gl.VALIDATE_STATUS)) {
+            const msg = gl.getProgramInfoLog(program);
+            gl.deleteProgram(program);
+            throw Error(msg);
+        }
+
         return program;
     }
 
@@ -427,31 +434,64 @@ window.addEventListener('load', () => {
      */
     class SceneObject {
         /**
-         * @param {number[]} attribs
-         * @param {Object} indexBuffers
-         * @param {Object[]} drawElements
+         * @param {Object.<string, Object>} attribBuffers
+         * @param {Object.<string, Object>} indexBuffers
+         * @param {Object[]} renderCommands
          * @param {Object} properties
          * @property {number} [inclusionFlags]
          * @property {Mat4} [matrix]
          */
-        constructor(attribs, indexBuffers = {}, drawElements = [], {inclusionFlags = ~0, matrix = new Mat4()} = {}) {
-            this.attribs = new Float32Array(attribs);
+        constructor(
+            attribBuffers = {},
+            indexBuffers = {}, renderCommands = [],
+            {inclusionFlags = ~0, matrix = new Mat4()} = {}
+        ) {
+            this.attribBuffers = new Map();
+            for (const [key, {data, usage = bufferUsage.STATIC_DRAW}]
+                    of attribBuffers[Symbol.iterator] === undefined ? Object.entries(attribBuffers) : attribBuffers) {
 
-            this.indexBuffers = {};
+                const entry = {
+                    data: null,
+                    usage,
+                };
+                this.attribBuffers.set(key, entry);
+
+                const [max, min, isInt] = data.reduce(([max, min, isInt], value) => {
+                    return [
+                        Math.max(max, value),
+                        Math.min(min, value),
+                        isInt && Math.trunc(value) === value,
+                    ];
+                }, [-Infinity, Infinity, true]);
+
+                if (!isInt) {
+                    entry.data = new Float32Array(data);
+                    continue;
+                }
+
+                if (min >= 0 && max <= 255) {
+                    entry.data = new Uint8Array(data);
+                    continue;
+                }
+
+                entry.data = new Int32Array(data);
+            }
+
+            this.indexBuffers = new Map();
             for (const [key, {indices, inclusionFlags = ~0, usage = bufferUsage.STATIC_DRAW}]
-                    of Object.entries(indexBuffers)) {
+                    of indexBuffers[Symbol.iterator] === undefined ? Object.entries(indexBuffers) : indexBuffers) {
 
                 const maxIndex = indices.reduce((runningMax, idx) => Math.max(runningMax, idx));
                 const indexArray = (maxIndex <= 255) ? Uint8Array : Uint16Array;
 
-                this.indexBuffers[key] = {
+                this.indexBuffers.set(key, {
                     indices: new indexArray(indices),
                     inclusionFlags,
                     usage,
-                };
+                });
             }
 
-            this.drawElements = drawElements;
+            this.renderCommands = Array.from(renderCommands);
             this.inclusionFlags = inclusionFlags;
             this.matrix = matrix;
         }
@@ -473,67 +513,258 @@ window.addEventListener('load', () => {
             vertexShaderUrl = 'shaders/vertex.vert',
             fragmentShaderUrl = 'shaders/fragment.frag',
         }) {
-            this.program = compileAndLinkProgram(gl, vertexShaderUrl, fragmentShaderUrl);
-
-            this.uniformLocations = {
-                modelMatrix: gl.getUniformLocation(this.program, 'u_model_matrix'),
-                viewMatrix: gl.getUniformLocation(this.program, 'u_view_matrix'),
-                projectionMatrix: gl.getUniformLocation(this.program, 'u_projection_matrix'),
-            };
-
-            this.attribLocations = {
-                position: gl.getAttribLocation(this.program, 'a_position'),
-                color: gl.getAttribLocation(this.program, 'a_color'),
-            };
-
-            this.attribBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.attribBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, sceneObject.attribs, gl.STATIC_DRAW);
-
-            this.drawElements = [];
-            for (const {bufferKey, mode, slice = null, inclusionFlags = ~0} of sceneObject.drawElements) {
-                if (!(inclusionFlags & contextInclusionFlags)) {
-                    continue;
-                }
-
-                const {indices, usage} = sceneObject.indexBuffers[bufferKey];
-
-                const buffer = gl.createBuffer();
-                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
-                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, bufferUsage.toGLUsage(gl, usage));
-
-                this.drawElements.push({
-                    buffer,
-                    mode: drawMode.toGLMode(gl, mode),
-                    count: slice ? slice[1] - slice[0] : indices.length,
-                    type: RenderObject._toBufferType(gl, indices),
-                    offset: slice ? slice[0] : 0,
-                });
-            }
-
+            this.gl = gl;
             this.sceneObject = sceneObject;
+            this.program = compileAndLinkProgram(this.gl, vertexShaderUrl, fragmentShaderUrl);
+
+            this._determineUniforms();
+            this._determineAttribs();
+
+            const relevantCommands = this.sceneObject.renderCommands
+                .filter(({inclusionFlags = ~0}) => (inclusionFlags & contextInclusionFlags));
+
+            const usedAttribBuffers = this._determineUsedAttribBuffers(relevantCommands);
+            const usedElementBuffers = RenderObject._determineUsedElementBuffers(relevantCommands);
+
+            this._allocateAttribBuffers(usedAttribBuffers, this.sceneObject.attribBuffers);
+            this._allocateElementBuffers(usedElementBuffers, this.sceneObject.indexBuffers);
+
+            this._prepareRenderCommands(relevantCommands);
         }
 
         /**
-         * Determine GL value type for an Element Array
+         * Determine shader program uniforms and map their name to their metadata
+         *
+         * @private
+         */
+        _determineUniforms() {
+            const numUniforms = this.gl.getProgramParameter(this.program, this.gl.ACTIVE_UNIFORMS);
+
+            this.uniforms = new Map();
+            for (let index = 0; index < numUniforms; ++index) {
+                const {name, type, size} = this.gl.getActiveUniform(this.program, index);
+                const location = this.gl.getUniformLocation(this.program, name);
+
+                this.uniforms.set(name, {
+                    location,
+                    type,
+                    size,
+                });
+            }
+        }
+
+        /**
+         * Determine shader program attribs and map their name to their metadata
+         *
+         * @private
+         */
+        _determineAttribs() {
+            const numAttribs = this.gl.getProgramParameter(this.program, this.gl.ACTIVE_ATTRIBUTES);
+
+            this.attribs = new Map();
+            for (let index = 0; index < numAttribs; index++) {
+                const {name, type, size} = this.gl.getActiveAttrib(this.program, index);
+
+                // TODO: remove debugging code
+                const location = this.gl.getAttribLocation(this.program, name);
+                if (location != index) {
+                    console.error(`Disagreeing Attrib Location: ${index} -> ${name} -> ${location}`);
+                    throw(Error(`Disagreeing Attrib Location: ${index} -> ${name} -> ${location}`));
+                }
+
+                this.attribs.set(name, {
+                    index,
+                    type,
+                    size,
+                });
+            }
+        }
+
+        /**
+         * Determine attrib buffers used by the relevant render commands
          *
          * @private
          *
-         * @param {WebGLRenderingContext} gl
-         * @param {ArrayBuffer} indexArray
+         * @param {Object[]} commands
          *
-         * @returns {GLenum}
+         * @returns {Set<string>}
          */
-        static _toBufferType(gl, indexArray) {
-            if (indexArray instanceof Uint8Array) {
-                return gl.UNSIGNED_BYTE;
+        _determineUsedAttribBuffers(commands) {
+            const usedBuffers = new Set();
+
+            for (const {command, attrib, buffer} of commands) {
+                if (command !== 'SET_ATTRIB') {
+                    continue;
+                }
+
+                if (!this.attribs.has(attrib)) {
+                    continue;
+                }
+
+                usedBuffers.add(buffer);
             }
 
-            if (indexArray instanceof Uint16Array) {
-                return gl.UNSIGNED_INT;
+            return usedBuffers;
+        }
+
+        /**
+         * Determine element buffers used by the relevant render commands
+         *
+         * @private
+         *
+         * @param {Object[]} commands
+         *
+         * @returns {Set<string>}
+         */
+        static _determineUsedElementBuffers(commands) {
+            const usedBuffers = new Set();
+
+            for (const {command, buffer} of commands) {
+                if (command !== 'DRAW_ELEMENTS') {
+                    continue;
+                }
+
+                usedBuffers.add(buffer);
             }
 
-            throw Error("unsupported index array type");
+            return usedBuffers;
+        }
+
+        /**
+         * Allocate and fill attribute buffers
+         *
+         * @private
+         *
+         * @param {Set<string>} keys
+         * @param {Map<string, Object>}attribBuffers
+         */
+        _allocateAttribBuffers(keys, attribBuffers) {
+            this.attribBuffers = new Map();
+
+            for (const key of keys) {
+                const {data, usage} = attribBuffers.get(key);
+                const buffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, data, bufferUsage.toGLUsage(this.gl, usage));
+
+                const {byteSize, type} = this._getBufferSpecs(data);
+                this.attribBuffers.set(key, {
+                    buffer,
+                    byteSize,
+                    type,
+                });
+            }
+
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
+        }
+
+        /**
+         * Allocate and fill element buffers
+         *
+         * @private
+         *
+         * @param {Set<string>} keys
+         * @param {Map<string, Object>} elementBuffers
+         */
+        _allocateElementBuffers(keys, elementBuffers) {
+            this.elementBuffers = new Map();
+
+            for (const key of keys) {
+                const {indices, usage} = elementBuffers.get(key);
+                const buffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, buffer);
+                this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, indices, bufferUsage.toGLUsage(this.gl, usage));
+
+                const {byteSize, type} = this._getBufferSpecs(indices);
+                this.elementBuffers.set(key, {
+                    buffer,
+                    byteSize,
+                    type,
+                });
+            }
+
+            this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, null);
+        }
+
+        /**
+         * Determine specifications of a typed array
+         * when used as a buffer in a WebGL context.
+         *
+         * @private
+         *
+         * @param {ArrayBuffer} bufferArray
+         *
+         * @returns {Object}
+         * @property {number} byteSize
+         * @property {GLenum} type
+         */
+        _getBufferSpecs(bufferArray) {
+            if (bufferArray instanceof Uint8Array) {
+                return {byteSize: 1, type: this.gl.UNSIGNED_BYTE};
+            }
+            if (bufferArray instanceof Uint16Array) {
+                return {byteSize: 2, type: this.gl.UNSIGNED_SHORT};
+            }
+            if (bufferArray instanceof Float32Array) {
+                return {byteSize: 4, type: this.gl.FLOAT};
+            }
+            if (bufferArray instanceof Int8Array) {
+                return {byteSize: 1, type: this.gl.BYTE};
+            }
+            if (bufferArray instanceof Int16Array) {
+                return {byteSize: 2, type: this.gl.SHORT};
+            }
+
+            throw Error("unsupported buffer array type");
+        }
+
+        /**
+         * TODO: description
+         *
+         * @private
+         *
+         * @param {Object[]} commands
+         */
+        _prepareRenderCommands(commands) {
+            this.renderCommands = [];
+
+            // TODO: destructure properties only where they are needed and only those that are needed
+            for (const {command, attrib, buffer: attribBuffer, mode, count, size, normalized, stride, offset} of commands) {
+                switch (command) {
+                    case 'SET_ATTRIB':
+                        const attribProps = this.attribs.get(attrib);
+                        if (attribProps === undefined) {
+                            continue;
+                        }
+
+                        const {index} = attribProps;
+                        const {buffer, byteSize, type: bufferType} = this.attribBuffers.get(attribBuffer);
+                        const byteStride = stride * byteSize;
+                        const byteOffset = offset * byteSize;
+
+                        this.renderCommands.push(() => {
+                            this.gl.enableVertexAttribArray(index);
+                            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
+                            this.gl.vertexAttribPointer(index, size, bufferType, normalized, byteStride, byteOffset);
+                        });
+
+                        break;
+                    case 'DRAW_ELEMENTS':
+                        // TODO: fix this naming mess
+                        const {buffer: elementBuffer, byteSize: indexSize, type} = this.elementBuffers.get(attribBuffer);
+                        const indexOffset = offset * indexSize;
+                        const glMode = drawMode.toGLMode(this.gl, mode);
+
+                        this.renderCommands.push(() => {
+                            this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, elementBuffer);
+                            this.gl.drawElements(glMode, count, type, indexOffset);
+                        });
+
+                        break;
+                    default:
+                        throw Error("unknown render command");
+                }
+            }
         }
     }
 
@@ -659,35 +890,20 @@ window.addEventListener('load', () => {
 
                 gl.useProgram(obj.program);
 
-                const attribLocations = obj.attribLocations;
+                const uniforms = obj.uniforms;
 
-                if (attribLocations.position >= 0) {
-                    gl.enableVertexAttribArray(attribLocations.position);
-                    gl.bindBuffer(gl.ARRAY_BUFFER, obj.attribBuffer);
-                    gl.vertexAttribPointer(attribLocations.position, 3, gl.FLOAT, false, 6 * 4, 0);
+                if (uniforms.has('u_model_matrix')) {
+                    gl.uniformMatrix4fv(uniforms.get('u_model_matrix').location, false, sceneObj.matrix.data);
+                }
+                if (uniforms.has('u_view_matrix')) {
+                    gl.uniformMatrix4fv(uniforms.get('u_view_matrix').location, false, this.view.data);
+                }
+                if (uniforms.has('u_projection_matrix')) {
+                    gl.uniformMatrix4fv(uniforms.get('u_projection_matrix').location, false, this.projection.data);
                 }
 
-                if (attribLocations.color >= 0) {
-                    gl.enableVertexAttribArray(attribLocations.color);
-                    gl.bindBuffer(gl.ARRAY_BUFFER, obj.attribBuffer);
-                    gl.vertexAttribPointer(attribLocations.color, 3, gl.FLOAT, false, 6 * 4, 3 * 4);
-                }
-
-                const uniformLocations = obj.uniformLocations;
-
-                if (uniformLocations.modelMatrix) {
-                    gl.uniformMatrix4fv(uniformLocations.modelMatrix, false, sceneObj.matrix.data);
-                }
-                if (uniformLocations.viewMatrix) {
-                    gl.uniformMatrix4fv(uniformLocations.viewMatrix, false, this.view.data);
-                }
-                if (uniformLocations.projectionMatrix) {
-                    gl.uniformMatrix4fv(uniformLocations.projectionMatrix, false, this.projection.data);
-                }
-
-                for (const {buffer, mode, count, type, offset} of obj.drawElements) {
-                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
-                    gl.drawElements(mode, count, type, offset);
+                for (const renderFunction of obj.renderCommands) {
+                    renderFunction();
                 }
             }
         }
@@ -713,37 +929,41 @@ window.addEventListener('load', () => {
     function buildScene() {
 
         return [
-            new SceneObject([
-                -0.5, -0.5, -0.5,   1.0, 0.0, 0.0,
-                 0.5, -0.5, -0.5,   1.0, 0.0, 0.0,
-                -0.5,  0.5, -0.5,   1.0, 0.0, 0.0,
-                 0.5,  0.5, -0.5,   1.0, 0.0, 0.0,
+            new SceneObject({
+                main: {
+                    data: [
+                        -0.5, -0.5, -0.5,   1.0, 0.0, 0.0,
+                         0.5, -0.5, -0.5,   1.0, 0.0, 0.0,
+                        -0.5,  0.5, -0.5,   1.0, 0.0, 0.0,
+                         0.5,  0.5, -0.5,   1.0, 0.0, 0.0,
 
-                 0.5, -0.5, -0.5,   1.0, 0.0, 1.0,
-                 0.5, -0.5,  0.5,   1.0, 0.0, 1.0,
-                 0.5,  0.5, -0.5,   1.0, 0.0, 1.0,
-                 0.5,  0.5,  0.5,   1.0, 0.0, 1.0,
+                         0.5, -0.5, -0.5,   1.0, 0.0, 1.0,
+                         0.5, -0.5,  0.5,   1.0, 0.0, 1.0,
+                         0.5,  0.5, -0.5,   1.0, 0.0, 1.0,
+                         0.5,  0.5,  0.5,   1.0, 0.0, 1.0,
 
-                -0.5,  0.5, -0.5,   0.0, 1.0, 0.0,
-                 0.5,  0.5, -0.5,   0.0, 1.0, 0.0,
-                -0.5,  0.5,  0.5,   0.0, 1.0, 0.0,
-                 0.5,  0.5,  0.5,   0.0, 1.0, 0.0,
+                        -0.5,  0.5, -0.5,   0.0, 1.0, 0.0,
+                         0.5,  0.5, -0.5,   0.0, 1.0, 0.0,
+                        -0.5,  0.5,  0.5,   0.0, 1.0, 0.0,
+                         0.5,  0.5,  0.5,   0.0, 1.0, 0.0,
 
-                -0.5, -0.5, -0.5,   0.0, 1.0, 1.0,
-                -0.5,  0.5, -0.5,   0.0, 1.0, 1.0,
-                -0.5, -0.5,  0.5,   0.0, 1.0, 1.0,
-                -0.5,  0.5,  0.5,   0.0, 1.0, 1.0,
+                        -0.5, -0.5, -0.5,   0.0, 1.0, 1.0,
+                        -0.5,  0.5, -0.5,   0.0, 1.0, 1.0,
+                        -0.5, -0.5,  0.5,   0.0, 1.0, 1.0,
+                        -0.5,  0.5,  0.5,   0.0, 1.0, 1.0,
 
-                -0.5, -0.5, -0.5,   1.0, 1.0, 0.0,
-                -0.5, -0.5,  0.5,   1.0, 1.0, 0.0,
-                 0.5, -0.5, -0.5,   1.0, 1.0, 0.0,
-                 0.5, -0.5,  0.5,   1.0, 1.0, 0.0,
+                        -0.5, -0.5, -0.5,   1.0, 1.0, 0.0,
+                        -0.5, -0.5,  0.5,   1.0, 1.0, 0.0,
+                         0.5, -0.5, -0.5,   1.0, 1.0, 0.0,
+                         0.5, -0.5,  0.5,   1.0, 1.0, 0.0,
 
-                -0.5, -0.5,  0.5,   1.0, 1.0, 1.0,
-                -0.5,  0.5,  0.5,   1.0, 1.0, 1.0,
-                 0.5, -0.5,  0.5,   1.0, 1.0, 1.0,
-                 0.5,  0.5,  0.5,   1.0, 1.0, 1.0,
-            ], {
+                        -0.5, -0.5,  0.5,   1.0, 1.0, 1.0,
+                        -0.5,  0.5,  0.5,   1.0, 1.0, 1.0,
+                         0.5, -0.5,  0.5,   1.0, 1.0, 1.0,
+                         0.5,  0.5,  0.5,   1.0, 1.0, 1.0,
+                    ],
+                },
+            }, {
                 main: {
                     indices: [
                         0,  1,  2,    3,  2,  1,
@@ -756,8 +976,29 @@ window.addEventListener('load', () => {
                 },
             }, [
                 {
-                    bufferKey: 'main',
+                    command: 'SET_ATTRIB',
+                    attrib: 'a_position',
+                    buffer: 'main',
+                    size: 3,
+                    normalized: false,
+                    stride: 6,
+                    offset: 0,
+                },
+                {
+                    command: 'SET_ATTRIB',
+                    attrib: 'a_color',
+                    buffer: 'main',
+                    size: 3,
+                    normalized: false,
+                    stride: 6,
+                    offset: 3,
+                },
+                {
+                    command: 'DRAW_ELEMENTS',
+                    buffer: 'main',
                     mode: drawMode.TRIANGLES,
+                    count: 36,
+                    offset: 0,
                 },
             ]),
         ];
