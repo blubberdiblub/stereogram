@@ -58,20 +58,18 @@ window.addEventListener('load', () => {
      * @returns {WebGLShader}
      */
     function createVertexShader(gl, url) {
-        let source;
-
         const normalizedURL = new URL(url, window.location.href);
-        if (Object.prototype.hasOwnProperty.call(createVertexShader._cache, normalizedURL)) {
-            source = createVertexShader._cache[normalizedURL];
-        } else {
+        let source = createVertexShader._cache.get(normalizedURL);
+
+        if (source === undefined) {
             source = loadShader(url, 'x-shader/x-vertex');
-            createVertexShader._cache[normalizedURL] = source;
+            createVertexShader._cache.set(normalizedURL, source);
         }
 
         return createShader(gl, gl.VERTEX_SHADER, source);
     }
 
-    createVertexShader._cache = {};
+    createVertexShader._cache = new Map();
 
     /**
      * Create a fragment shader from a URL
@@ -82,20 +80,18 @@ window.addEventListener('load', () => {
      * @returns {WebGLShader}
      */
     function createFragmentShader(gl, url) {
-        let source;
-
         const normalizedURL = new URL(url, window.location.href);
-        if (Object.prototype.hasOwnProperty.call(createFragmentShader._cache, normalizedURL)) {
-            source = createFragmentShader._cache[normalizedURL];
-        } else {
+        let source = createFragmentShader._cache.get(normalizedURL);
+
+        if (source === undefined) {
             source = loadShader(url, 'x-shader/x-fragment');
-            createFragmentShader._cache[normalizedURL] = source;
+            createFragmentShader._cache.set(normalizedURL, source);
         }
 
         return createShader(gl, gl.FRAGMENT_SHADER, source);
     }
 
-    createFragmentShader._cache = {};
+    createFragmentShader._cache = new Map();
 
     /**
      * Create a shader program from compiled vertex and fragment shaders
