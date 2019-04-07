@@ -430,27 +430,52 @@ window.addEventListener('load', () => {
      */
     class SceneObject {
         /**
-         * @param {Object.<string, Object>} attribBuffers
-         * @param {Object.<string, Object>} indexBuffers
          * @param {Object[]} renderCommands
+         * @param {(Object.<string, Object>|Iterable.<string, Object>)} attribData
+         * @param {(Object.<string, Object>|Iterable.<string, Object>)} elementIndices
          * @param {Object} properties
          * @property {number} [inclusionFlags]
          * @property {Mat4} [matrix]
          */
         constructor(
-            attribBuffers = {},
-            indexBuffers = {}, renderCommands = [],
+            renderCommands = [], attribData = {}, elementIndices = {},
             {inclusionFlags = ~0, matrix = new Mat4()} = {}
         ) {
+            this.renderCommands = Array.from(renderCommands);
             this.attribBuffers = new Map();
-            for (const [key, {data, usage = bufferUsage.STATIC_DRAW}]
-                    of attribBuffers[Symbol.iterator] === undefined ? Object.entries(attribBuffers) : attribBuffers) {
+            this.elementBuffers = new Map();
+            this.inclusionFlags = inclusionFlags;
+            this.matrix = matrix;
+
+            SceneObject._initializeAttribBuffers(
+                this.attribBuffers,
+                attribData[Symbol.iterator] === undefined ?
+                    Object.entries(attribData) : attribData
+            );
+
+            SceneObject._initializeElementBuffers(
+                this.elementBuffers,
+                elementIndices[Symbol.iterator] === undefined ?
+                    Object.entries(elementIndices) : elementIndices
+            );
+        }
+
+        /**
+         * Allocate appropriate typed arrays for attrib buffers
+         *
+         * @private
+         *
+         * @param {Map<string, Object>} attribBuffers
+         * @param {Iterable.<string, Object>} attribData
+         */
+        static _initializeAttribBuffers(attribBuffers, attribData) {
+            for (const [key, {data, usage = bufferUsage.STATIC_DRAW}] of attribData) {
 
                 const entry = {
                     data: null,
                     usage,
                 };
-                this.attribBuffers.set(key, entry);
+                attribBuffers.set(key, entry);
 
                 const [max, min, isInt] = data.reduce(([max, min, isInt], value) => {
                     return [
@@ -460,36 +485,50 @@ window.addEventListener('load', () => {
                     ];
                 }, [-Infinity, Infinity, true]);
 
-                if (!isInt) {
-                    entry.data = new Float32Array(data);
-                    continue;
-                }
-
-                if (min >= 0 && max <= 255) {
+                if (isInt && min >= 0 && max <= 255) {
                     entry.data = new Uint8Array(data);
                     continue;
                 }
 
-                entry.data = new Int32Array(data);
+                if (isInt && min >= -128 && max <= 127) {
+                    entry.data = new Int8Array(data);
+                    continue;
+                }
+
+                if (isInt && min >= 0 && max <= 65535) {
+                    entry.data = new Uint16Array(data);
+                    continue;
+                }
+
+                if (isInt && min >= -32768 && max <= 32767) {
+                    entry.data = new Int16Array(data);
+                    continue;
+                }
+
+                entry.data = new Float32Array(data);
             }
+        }
 
-            this.indexBuffers = new Map();
-            for (const [key, {indices, inclusionFlags = ~0, usage = bufferUsage.STATIC_DRAW}]
-                    of indexBuffers[Symbol.iterator] === undefined ? Object.entries(indexBuffers) : indexBuffers) {
+        /**
+         * Allocate appropriate typed arrays for element buffers
+         *
+         * @private
+         *
+         * @param {Map<string, Object>} elementBuffers
+         * @param {Iterable.<string, Object>} elementIndices
+         */
+        static _initializeElementBuffers(elementBuffers, elementIndices) {
+            for (const [key, {indices, inclusionFlags = ~0, usage = bufferUsage.STATIC_DRAW}] of elementIndices) {
 
-                const maxIndex = indices.reduce((runningMax, idx) => Math.max(runningMax, idx));
-                const indexArray = (maxIndex <= 255) ? Uint8Array : Uint16Array;
+                const max = indices.reduce((max, index) => Math.max(max, index));
+                const indexArray = (max <= 255) ? Uint8Array : Uint16Array;
 
-                this.indexBuffers.set(key, {
+                elementBuffers.set(key, {
                     indices: new indexArray(indices),
                     inclusionFlags,
                     usage,
                 });
             }
-
-            this.renderCommands = Array.from(renderCommands);
-            this.inclusionFlags = inclusionFlags;
-            this.matrix = matrix;
         }
     }
 
@@ -523,7 +562,7 @@ window.addEventListener('load', () => {
             const usedElementBuffers = RenderObject._determineUsedElementBuffers(relevantCommands);
 
             this._allocateAttribBuffers(usedAttribBuffers, this.sceneObject.attribBuffers);
-            this._allocateElementBuffers(usedElementBuffers, this.sceneObject.indexBuffers);
+            this._allocateElementBuffers(usedElementBuffers, this.sceneObject.elementBuffers);
 
             this._prepareRenderCommands(relevantCommands);
         }
@@ -925,78 +964,82 @@ window.addEventListener('load', () => {
     function buildScene() {
 
         return [
-            new SceneObject({
-                main: {
-                    data: [
-                        -0.5, -0.5, -0.5,   1.0, 0.0, 0.0,
-                         0.5, -0.5, -0.5,   1.0, 0.0, 0.0,
-                        -0.5,  0.5, -0.5,   1.0, 0.0, 0.0,
-                         0.5,  0.5, -0.5,   1.0, 0.0, 0.0,
-
-                         0.5, -0.5, -0.5,   1.0, 0.0, 1.0,
-                         0.5, -0.5,  0.5,   1.0, 0.0, 1.0,
-                         0.5,  0.5, -0.5,   1.0, 0.0, 1.0,
-                         0.5,  0.5,  0.5,   1.0, 0.0, 1.0,
-
-                        -0.5,  0.5, -0.5,   0.0, 1.0, 0.0,
-                         0.5,  0.5, -0.5,   0.0, 1.0, 0.0,
-                        -0.5,  0.5,  0.5,   0.0, 1.0, 0.0,
-                         0.5,  0.5,  0.5,   0.0, 1.0, 0.0,
-
-                        -0.5, -0.5, -0.5,   0.0, 1.0, 1.0,
-                        -0.5,  0.5, -0.5,   0.0, 1.0, 1.0,
-                        -0.5, -0.5,  0.5,   0.0, 1.0, 1.0,
-                        -0.5,  0.5,  0.5,   0.0, 1.0, 1.0,
-
-                        -0.5, -0.5, -0.5,   1.0, 1.0, 0.0,
-                        -0.5, -0.5,  0.5,   1.0, 1.0, 0.0,
-                         0.5, -0.5, -0.5,   1.0, 1.0, 0.0,
-                         0.5, -0.5,  0.5,   1.0, 1.0, 0.0,
-
-                        -0.5, -0.5,  0.5,   1.0, 1.0, 1.0,
-                        -0.5,  0.5,  0.5,   1.0, 1.0, 1.0,
-                         0.5, -0.5,  0.5,   1.0, 1.0, 1.0,
-                         0.5,  0.5,  0.5,   1.0, 1.0, 1.0,
-                    ],
-                },
-            }, {
-                main: {
-                    indices: [
-                        0,  1,  2,    3,  2,  1,
-                        4,  5,  6,    7,  6,  5,
-                        8,  9, 10,   11, 10,  9,
-                        12, 13, 14,   15, 14, 13,
-                        16, 17, 18,   19, 18, 17,
-                        20, 21, 22,   23, 22, 21,
-                    ],
-                },
-            }, [
+            new SceneObject(
+                [
+                    {
+                        command: 'SET_ATTRIB',
+                        attrib: 'a_position',
+                        buffer: 'main',
+                        size: 3,
+                        normalized: false,
+                        stride: 6,
+                        offset: 0,
+                    },
+                    {
+                        command: 'SET_ATTRIB',
+                        attrib: 'a_color',
+                        buffer: 'main',
+                        size: 3,
+                        normalized: false,
+                        stride: 6,
+                        offset: 3,
+                    },
+                    {
+                        command: 'DRAW_ELEMENTS',
+                        buffer: 'main',
+                        mode: drawMode.TRIANGLES,
+                        count: 36,
+                        offset: 0,
+                    },
+                ],
                 {
-                    command: 'SET_ATTRIB',
-                    attrib: 'a_position',
-                    buffer: 'main',
-                    size: 3,
-                    normalized: false,
-                    stride: 6,
-                    offset: 0,
+                    main: {
+                        data: [
+                            -0.5, -0.5, -0.5,   1.0, 0.0, 0.0,
+                             0.5, -0.5, -0.5,   1.0, 0.0, 0.0,
+                            -0.5,  0.5, -0.5,   1.0, 0.0, 0.0,
+                             0.5,  0.5, -0.5,   1.0, 0.0, 0.0,
+
+                             0.5, -0.5, -0.5,   1.0, 0.0, 1.0,
+                             0.5, -0.5,  0.5,   1.0, 0.0, 1.0,
+                             0.5,  0.5, -0.5,   1.0, 0.0, 1.0,
+                             0.5,  0.5,  0.5,   1.0, 0.0, 1.0,
+
+                            -0.5,  0.5, -0.5,   0.0, 1.0, 0.0,
+                             0.5,  0.5, -0.5,   0.0, 1.0, 0.0,
+                            -0.5,  0.5,  0.5,   0.0, 1.0, 0.0,
+                             0.5,  0.5,  0.5,   0.0, 1.0, 0.0,
+
+                            -0.5, -0.5, -0.5,   0.0, 1.0, 1.0,
+                            -0.5,  0.5, -0.5,   0.0, 1.0, 1.0,
+                            -0.5, -0.5,  0.5,   0.0, 1.0, 1.0,
+                            -0.5,  0.5,  0.5,   0.0, 1.0, 1.0,
+
+                            -0.5, -0.5, -0.5,   1.0, 1.0, 0.0,
+                            -0.5, -0.5,  0.5,   1.0, 1.0, 0.0,
+                             0.5, -0.5, -0.5,   1.0, 1.0, 0.0,
+                             0.5, -0.5,  0.5,   1.0, 1.0, 0.0,
+
+                            -0.5, -0.5,  0.5,   1.0, 1.0, 1.0,
+                            -0.5,  0.5,  0.5,   1.0, 1.0, 1.0,
+                             0.5, -0.5,  0.5,   1.0, 1.0, 1.0,
+                             0.5,  0.5,  0.5,   1.0, 1.0, 1.0,
+                        ],
+                    },
                 },
                 {
-                    command: 'SET_ATTRIB',
-                    attrib: 'a_color',
-                    buffer: 'main',
-                    size: 3,
-                    normalized: false,
-                    stride: 6,
-                    offset: 3,
-                },
-                {
-                    command: 'DRAW_ELEMENTS',
-                    buffer: 'main',
-                    mode: drawMode.TRIANGLES,
-                    count: 36,
-                    offset: 0,
-                },
-            ]),
+                    main: {
+                        indices: [
+                            0,  1,  2,    3,  2,  1,
+                            4,  5,  6,    7,  6,  5,
+                            8,  9, 10,   11, 10,  9,
+                            12, 13, 14,   15, 14, 13,
+                            16, 17, 18,   19, 18, 17,
+                            20, 21, 22,   23, 22, 21,
+                        ],
+                    },
+                }
+            ),
         ];
     }
 
