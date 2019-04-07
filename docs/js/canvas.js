@@ -448,7 +448,7 @@ window.addEventListener('load', () => {
          *
          * @param {RenderObject} renderObject
          *
-         * @returns {function(WebGLRenderingContext):void[]}
+         * @returns {(function(WebGLRenderingContext):void)[]}
          */
         prepare(renderObject) {
             throw(Error("use a concrete implementation"));
@@ -549,19 +549,19 @@ window.addEventListener('load', () => {
             {inclusionFlags = ~0, matrix = new Mat4()} = {}
         ) {
             this.renderCommands = Array.from(renderCommands);
-            this.attribBuffers = new Map();
-            this.elementBuffers = new Map();
+            this.attribArrays = new Map();
+            this.elementArrays = new Map();
             this.inclusionFlags = inclusionFlags;
             this.matrix = matrix;
 
-            SceneObject._initializeAttribBuffers(
-                this.attribBuffers,
+            SceneObject._initializeAttribArrays(
+                this.attribArrays,
                 attribData[Symbol.iterator] === undefined ?
                     Object.entries(attribData) : attribData
             );
 
-            SceneObject._initializeElementBuffers(
-                this.elementBuffers,
+            SceneObject._initializeElementArrays(
+                this.elementArrays,
                 elementIndices[Symbol.iterator] === undefined ?
                     Object.entries(elementIndices) : elementIndices
             );
@@ -572,17 +572,17 @@ window.addEventListener('load', () => {
          *
          * @private
          *
-         * @param {Map<string, Object>} attribBuffers
+         * @param {Map<string, Object>} attribArrays
          * @param {Iterable.<string, Object>} attribData
          */
-        static _initializeAttribBuffers(attribBuffers, attribData) {
+        static _initializeAttribArrays(attribArrays, attribData) {
             for (const [key, {data, usage = bufferUsage.STATIC_DRAW}] of attribData) {
 
                 const entry = {
                     data: null,
                     usage,
                 };
-                attribBuffers.set(key, entry);
+                attribArrays.set(key, entry);
 
                 const [max, min, isInt] = data.reduce(([max, min, isInt], value) => {
                     return [
@@ -621,16 +621,16 @@ window.addEventListener('load', () => {
          *
          * @private
          *
-         * @param {Map<string, Object>} elementBuffers
+         * @param {Map<string, Object>} elementArrays
          * @param {Iterable.<string, Object>} elementIndices
          */
-        static _initializeElementBuffers(elementBuffers, elementIndices) {
+        static _initializeElementArrays(elementArrays, elementIndices) {
             for (const [key, {indices, inclusionFlags = ~0, usage = bufferUsage.STATIC_DRAW}] of elementIndices) {
 
                 const max = indices.reduce((max, index) => Math.max(max, index));
                 const indexArray = (max <= 255) ? Uint8Array : Uint16Array;
 
-                elementBuffers.set(key, {
+                elementArrays.set(key, {
                     indices: new indexArray(indices),
                     inclusionFlags,
                     usage,
@@ -658,19 +658,26 @@ window.addEventListener('load', () => {
             this.gl = gl;
             this.sceneObject = sceneObject;
             this.program = compileAndLinkProgram(this.gl, vertexShaderUrl, fragmentShaderUrl);
+            this.uniforms = new Map();
+            this.attribs = new Map();
+            this.attribBuffers = new Map();
+            this.elementBuffers = new Map();
             this.renderCommands = [];
 
-            this._determineUniforms();
-            this._determineAttribs();
+            RenderObject._determineUniforms(this.uniforms, this.gl, this.program);
+            RenderObject._determineAttribs(this.attribs, this.gl, this.program);
 
             const relevantCommands = this.sceneObject.renderCommands
                 .filter(command => command.inclusionFlags & inclusionFlags);
 
-            const usedAttribBuffers = this._determineUsedAttribBuffers(relevantCommands);
+            const usedAttribBuffers = RenderObject._determineUsedAttribBuffers(relevantCommands, this.attribs);
             const usedElementBuffers = RenderObject._determineUsedElementBuffers(relevantCommands);
 
-            this._allocateAttribBuffers(usedAttribBuffers, this.sceneObject.attribBuffers);
-            this._allocateElementBuffers(usedElementBuffers, this.sceneObject.elementBuffers);
+            RenderObject._allocateAttribBuffers(this.attribBuffers, this.gl,
+                usedAttribBuffers, this.sceneObject.attribArrays);
+
+            RenderObject._allocateElementBuffers(this.elementBuffers, this.gl,
+                usedElementBuffers, this.sceneObject.elementArrays);
 
             for (const command of relevantCommands) {
                 this.renderCommands.push(...command.prepare(this));
@@ -681,16 +688,19 @@ window.addEventListener('load', () => {
          * Determine shader program uniforms and map their name to their metadata
          *
          * @private
+         *
+         * @param {Map<string, Object>} uniforms
+         * @param {WebGLRenderingContext} gl
+         * @param {WebGLProgram} program
          */
-        _determineUniforms() {
-            const numUniforms = this.gl.getProgramParameter(this.program, this.gl.ACTIVE_UNIFORMS);
+        static _determineUniforms(uniforms, gl, program) {
+            const numUniforms = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
 
-            this.uniforms = new Map();
             for (let index = 0; index < numUniforms; ++index) {
-                const {name, type, size} = this.gl.getActiveUniform(this.program, index);
-                const location = this.gl.getUniformLocation(this.program, name);
+                const {name, type, size} = gl.getActiveUniform(program, index);
+                const location = gl.getUniformLocation(program, name);
 
-                this.uniforms.set(name, {
+                uniforms.set(name, {
                     location,
                     type,
                     size,
@@ -702,22 +712,25 @@ window.addEventListener('load', () => {
          * Determine shader program attribs and map their name to their metadata
          *
          * @private
+         *
+         * @param {Map<string, Object>} attribs
+         * @param {WebGLRenderingContext} gl
+         * @param {WebGLProgram} program
          */
-        _determineAttribs() {
-            const numAttribs = this.gl.getProgramParameter(this.program, this.gl.ACTIVE_ATTRIBUTES);
+        static _determineAttribs(attribs, gl, program) {
+            const numAttribs = gl.getProgramParameter(program, gl.ACTIVE_ATTRIBUTES);
 
-            this.attribs = new Map();
             for (let index = 0; index < numAttribs; index++) {
-                const {name, type, size} = this.gl.getActiveAttrib(this.program, index);
+                const {name, type, size} = gl.getActiveAttrib(program, index);
 
                 // TODO: remove debugging code
-                const location = this.gl.getAttribLocation(this.program, name);
+                const location = gl.getAttribLocation(program, name);
                 if (location != index) {
                     console.error(`Disagreeing Attrib Location: ${index} -> ${name} -> ${location}`);
                     throw(Error(`Disagreeing Attrib Location: ${index} -> ${name} -> ${location}`));
                 }
 
-                this.attribs.set(name, {
+                attribs.set(name, {
                     index,
                     type,
                     size,
@@ -731,10 +744,11 @@ window.addEventListener('load', () => {
          * @private
          *
          * @param {RenderCommand[]} commands
+         * @param {Map<string, Object>} attribs
          *
          * @returns {Set<string>}
          */
-        _determineUsedAttribBuffers(commands) {
+        static _determineUsedAttribBuffers(commands, attribs) {
             const usedBuffers = new Set();
 
             for (const command of commands) {
@@ -742,7 +756,7 @@ window.addEventListener('load', () => {
                     continue;
                 }
 
-                if (!this.attribs.has(command.attribName)) {
+                if (!attribs.has(command.attribName)) {
                     continue;
                 }
 
@@ -780,27 +794,27 @@ window.addEventListener('load', () => {
          *
          * @private
          *
+         * @param {Map<string, Object>} attribBuffers
+         * @param {WebGLRenderingContext} gl
          * @param {Set<string>} keys
-         * @param {Map<string, Object>}attribBuffers
+         * @param {Map<string, Object>} attribArrays
          */
-        _allocateAttribBuffers(keys, attribBuffers) {
-            this.attribBuffers = new Map();
-
+        static _allocateAttribBuffers(attribBuffers, gl, keys, attribArrays) {
             for (const key of keys) {
-                const {data, usage} = attribBuffers.get(key);
-                const buffer = this.gl.createBuffer();
-                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
-                this.gl.bufferData(this.gl.ARRAY_BUFFER, data, bufferUsage.toGLUsage(this.gl, usage));
+                const {data, usage} = attribArrays.get(key);
+                const buffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+                gl.bufferData(gl.ARRAY_BUFFER, data, bufferUsage.toGLUsage(gl, usage));
 
-                const {byteSize, type} = this._getBufferSpecs(data);
-                this.attribBuffers.set(key, {
+                const {byteSize, type} = RenderObject._getBufferSpecs(gl, data);
+                attribBuffers.set(key, {
                     buffer,
                     byteSize,
                     type,
                 });
             }
 
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
+            gl.bindBuffer(gl.ARRAY_BUFFER, null);
         }
 
         /**
@@ -808,27 +822,27 @@ window.addEventListener('load', () => {
          *
          * @private
          *
-         * @param {Set<string>} keys
          * @param {Map<string, Object>} elementBuffers
+         * @param {WebGLRenderingContext} gl
+         * @param {Set<string>} keys
+         * @param {Map<string, Object>} elementArrays
          */
-        _allocateElementBuffers(keys, elementBuffers) {
-            this.elementBuffers = new Map();
-
+        static _allocateElementBuffers(elementBuffers, gl, keys, elementArrays) {
             for (const key of keys) {
-                const {indices, usage} = elementBuffers.get(key);
-                const buffer = this.gl.createBuffer();
-                this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, buffer);
-                this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, indices, bufferUsage.toGLUsage(this.gl, usage));
+                const {indices, usage} = elementArrays.get(key);
+                const buffer = gl.createBuffer();
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
+                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, bufferUsage.toGLUsage(gl, usage));
 
-                const {byteSize, type} = this._getBufferSpecs(indices);
-                this.elementBuffers.set(key, {
+                const {byteSize, type} = RenderObject._getBufferSpecs(gl, indices);
+                elementBuffers.set(key, {
                     buffer,
                     byteSize,
                     type,
                 });
             }
 
-            this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, null);
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
         }
 
         /**
@@ -837,27 +851,28 @@ window.addEventListener('load', () => {
          *
          * @private
          *
+         * @param {WebGLRenderingContext} gl
          * @param {ArrayBuffer} bufferArray
          *
          * @returns {Object}
          * @property {number} byteSize
          * @property {GLenum} type
          */
-        _getBufferSpecs(bufferArray) {
+        static _getBufferSpecs(gl, bufferArray) {
             if (bufferArray instanceof Uint8Array) {
-                return {byteSize: 1, type: this.gl.UNSIGNED_BYTE};
+                return {byteSize: 1, type: gl.UNSIGNED_BYTE};
             }
             if (bufferArray instanceof Uint16Array) {
-                return {byteSize: 2, type: this.gl.UNSIGNED_SHORT};
+                return {byteSize: 2, type: gl.UNSIGNED_SHORT};
             }
             if (bufferArray instanceof Float32Array) {
-                return {byteSize: 4, type: this.gl.FLOAT};
+                return {byteSize: 4, type: gl.FLOAT};
             }
             if (bufferArray instanceof Int8Array) {
-                return {byteSize: 1, type: this.gl.BYTE};
+                return {byteSize: 1, type: gl.BYTE};
             }
             if (bufferArray instanceof Int16Array) {
-                return {byteSize: 2, type: this.gl.SHORT};
+                return {byteSize: 2, type: gl.SHORT};
             }
 
             throw Error("unsupported buffer array type");
