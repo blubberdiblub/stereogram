@@ -426,11 +426,118 @@ window.addEventListener('load', () => {
     };
 
     /**
+     * Render command in the context of an object
+     *
+     * For the user of the class, this is fairly abstract, while the actual
+     * implementation can actually consist of any number of function calls.
+     *
+     * When a RenderContext select a command for inclusion, it will prepare
+     * commands tailored to the RenderObject in that particular context.
+     */
+    class RenderCommand {
+        /**
+         * @param {Object} properties
+         * @property {number} [inclusionFlags=~0]
+         */
+        constructor({inclusionFlags=~0}) {
+            this.inclusionFlags = inclusionFlags;
+        }
+
+        /**
+         * Prepare concrete commands for an object in a RenderContext
+         *
+         * @param {RenderObject} renderObject
+         *
+         * @returns {function(WebGLRenderingContext):void[]}
+         */
+        prepare(renderObject) {
+            throw(Error("use a concrete implementation"));
+        }
+    }
+
+    class CmdSetAttrib extends RenderCommand {
+        /**
+         * @param {string} attribName
+         * @param {string} bufferName
+         * @param {Object} properties
+         * @property {number} size
+         * @property {boolean} [normalized=false]
+         * @property {number} [stride=0]
+         * @property {number} [offset=0]
+         */
+        constructor(attribName, bufferName, {size, normalized=false, stride=0, offset=0, ...rest}={}) {
+            super(rest);
+
+            this.attribName = attribName;
+            this.bufferName = bufferName;
+            this.size = size;
+            this.normalized = normalized;
+            this.stride = stride;
+            this.offset = offset;
+        }
+
+        prepare(renderObject) {
+            const attribProps = renderObject.attribs.get(this.attribName);
+            if (attribProps === undefined) {
+                return [];
+            }
+
+            const {index} = attribProps;
+            const {buffer, byteSize, type} = renderObject.attribBuffers.get(this.bufferName);
+            const byteStride = this.stride * byteSize;
+            const byteOffset = this.offset * byteSize;
+
+            return [CmdSetAttrib._cmd(index, buffer, this.size, type, this.normalized, byteStride, byteOffset)];
+        }
+
+        static _cmd(index, buffer, size, type, normalized, stride, offset) {
+            return (gl) => {
+                gl.enableVertexAttribArray(index);
+                gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+                gl.vertexAttribPointer(index, size, type, normalized, stride, offset);
+            };
+        }
+    }
+
+    class CmdDrawElements extends RenderCommand {
+        /**
+         * @param {string} bufferName
+         * @param {drawMode} mode
+         * @param {Object} properties
+         * @property {number} count
+         * @property {number} [offset=0]
+         */
+        constructor(bufferName, mode, {count, offset=0, ...rest}={}) {
+            super(rest);
+
+            this.bufferName = bufferName;
+            this.mode = mode;
+            this.count = count;
+            this.offset = offset;
+        }
+
+        prepare(renderObject) {
+            const {buffer, byteSize, type} = renderObject.elementBuffers.get(this.bufferName);
+            const byteOffset = this.offset * byteSize;
+            const mode = drawMode.toGLMode(renderObject.gl, this.mode);
+
+            return [CmdDrawElements._cmd(buffer, mode, this.count, type, byteOffset)];
+        }
+
+        static _cmd(buffer, mode, count, type, offset) {
+            return (gl) => {
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
+                gl.drawElements(mode, count, type, offset);
+            };
+        }
+    }
+
+    /**
      * Manipulable object in a scene
      */
     class SceneObject {
         /**
-         * @param {Object[]} renderCommands
+         * @param {RenderCommand[]} renderCommands
          * @param {(Object.<string, Object>|Iterable.<string, Object>)} attribData
          * @param {(Object.<string, Object>|Iterable.<string, Object>)} elementIndices
          * @param {Object} properties
@@ -544,19 +651,20 @@ window.addEventListener('load', () => {
          * @property {string} fragmentShaderUrl
          */
         constructor(gl, sceneObject, {
-            inclusionFlags: contextInclusionFlags,
+            inclusionFlags,
             vertexShaderUrl = 'shaders/vertex.vert',
             fragmentShaderUrl = 'shaders/fragment.frag',
         }) {
             this.gl = gl;
             this.sceneObject = sceneObject;
             this.program = compileAndLinkProgram(this.gl, vertexShaderUrl, fragmentShaderUrl);
+            this.renderCommands = [];
 
             this._determineUniforms();
             this._determineAttribs();
 
             const relevantCommands = this.sceneObject.renderCommands
-                .filter(({inclusionFlags = ~0}) => (inclusionFlags & contextInclusionFlags));
+                .filter(command => command.inclusionFlags & inclusionFlags);
 
             const usedAttribBuffers = this._determineUsedAttribBuffers(relevantCommands);
             const usedElementBuffers = RenderObject._determineUsedElementBuffers(relevantCommands);
@@ -564,7 +672,9 @@ window.addEventListener('load', () => {
             this._allocateAttribBuffers(usedAttribBuffers, this.sceneObject.attribBuffers);
             this._allocateElementBuffers(usedElementBuffers, this.sceneObject.elementBuffers);
 
-            this._prepareRenderCommands(relevantCommands);
+            for (const command of relevantCommands) {
+                this.renderCommands.push(...command.prepare(this));
+            }
         }
 
         /**
@@ -620,23 +730,23 @@ window.addEventListener('load', () => {
          *
          * @private
          *
-         * @param {Object[]} commands
+         * @param {RenderCommand[]} commands
          *
          * @returns {Set<string>}
          */
         _determineUsedAttribBuffers(commands) {
             const usedBuffers = new Set();
 
-            for (const {command, attrib, buffer} of commands) {
-                if (command !== 'SET_ATTRIB') {
+            for (const command of commands) {
+                if (!(command instanceof CmdSetAttrib)) {
                     continue;
                 }
 
-                if (!this.attribs.has(attrib)) {
+                if (!this.attribs.has(command.attribName)) {
                     continue;
                 }
 
-                usedBuffers.add(buffer);
+                usedBuffers.add(command.bufferName);
             }
 
             return usedBuffers;
@@ -647,19 +757,19 @@ window.addEventListener('load', () => {
          *
          * @private
          *
-         * @param {Object[]} commands
+         * @param {RenderCommand[]} commands
          *
          * @returns {Set<string>}
          */
         static _determineUsedElementBuffers(commands) {
             const usedBuffers = new Set();
 
-            for (const {command, buffer} of commands) {
-                if (command !== 'DRAW_ELEMENTS') {
+            for (const command of commands) {
+                if (!(command instanceof CmdDrawElements)) {
                     continue;
                 }
 
-                usedBuffers.add(buffer);
+                usedBuffers.add(command.bufferName);
             }
 
             return usedBuffers;
@@ -751,55 +861,6 @@ window.addEventListener('load', () => {
             }
 
             throw Error("unsupported buffer array type");
-        }
-
-        /**
-         * TODO: description
-         *
-         * @private
-         *
-         * @param {Object[]} commands
-         */
-        _prepareRenderCommands(commands) {
-            this.renderCommands = [];
-
-            // TODO: destructure properties only where they are needed and only those that are needed
-            for (const {command, attrib, buffer: attribBuffer, mode, count, size, normalized, stride, offset} of commands) {
-                switch (command) {
-                    case 'SET_ATTRIB':
-                        const attribProps = this.attribs.get(attrib);
-                        if (attribProps === undefined) {
-                            continue;
-                        }
-
-                        const {index} = attribProps;
-                        const {buffer, byteSize, type: bufferType} = this.attribBuffers.get(attribBuffer);
-                        const byteStride = stride * byteSize;
-                        const byteOffset = offset * byteSize;
-
-                        this.renderCommands.push(() => {
-                            this.gl.enableVertexAttribArray(index);
-                            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
-                            this.gl.vertexAttribPointer(index, size, bufferType, normalized, byteStride, byteOffset);
-                        });
-
-                        break;
-                    case 'DRAW_ELEMENTS':
-                        // TODO: fix this naming mess
-                        const {buffer: elementBuffer, byteSize: indexSize, type} = this.elementBuffers.get(attribBuffer);
-                        const indexOffset = offset * indexSize;
-                        const glMode = drawMode.toGLMode(this.gl, mode);
-
-                        this.renderCommands.push(() => {
-                            this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, elementBuffer);
-                            this.gl.drawElements(glMode, count, type, indexOffset);
-                        });
-
-                        break;
-                    default:
-                        throw Error("unknown render command");
-                }
-            }
         }
     }
 
@@ -938,7 +999,7 @@ window.addEventListener('load', () => {
                 }
 
                 for (const renderFunction of obj.renderCommands) {
-                    renderFunction();
+                    renderFunction(gl);
                 }
             }
         }
@@ -966,31 +1027,9 @@ window.addEventListener('load', () => {
         return [
             new SceneObject(
                 [
-                    {
-                        command: 'SET_ATTRIB',
-                        attrib: 'a_position',
-                        buffer: 'main',
-                        size: 3,
-                        normalized: false,
-                        stride: 6,
-                        offset: 0,
-                    },
-                    {
-                        command: 'SET_ATTRIB',
-                        attrib: 'a_color',
-                        buffer: 'main',
-                        size: 3,
-                        normalized: false,
-                        stride: 6,
-                        offset: 3,
-                    },
-                    {
-                        command: 'DRAW_ELEMENTS',
-                        buffer: 'main',
-                        mode: drawMode.TRIANGLES,
-                        count: 36,
-                        offset: 0,
-                    },
+                    new CmdSetAttrib('a_position', 'main', {size: 3, normalized: false, stride: 6, offset: 0}),
+                    new CmdSetAttrib('a_color', 'main', {size: 3, normalized: false, stride: 6, offset: 3}),
+                    new CmdDrawElements('main', drawMode.TRIANGLES, {count: 36, offset: 0}),
                 ],
                 {
                     main: {
