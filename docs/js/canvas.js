@@ -1108,25 +1108,81 @@ window.addEventListener('load', () => {
     }
 
     /**
-     * Semantic flags to determine what to render in which context
+     * Build render contexts
      *
-     * @enum {number}
-     * @readonly
+     * @param {SceneObject[]} scene
+     * @param {(Object.<string, Object>|Iterable.<string, Object>)} contextDescriptions
+     *
+     * @returns {RenderContext[]}
      */
-    const renderInclusion = {
-        NORMAL: 1 << 0,
-        EYE_DEMO: 1 << 1,
-        STEREOGRAM: 1 << 2,
-    };
+    function buildRenderContexts(scene, contextDescriptions) {
+        const renderContexts = [];
+
+        for (const [id, properties] of contextDescriptions[Symbol.iterator] === undefined ?
+            Object.entries(contextDescriptions) : contextDescriptions
+        ) {
+            const canvas = document.getElementById(id);
+
+            const gl = canvas.getContext('webgl');
+            if (!gl) {
+                throw Error("cannot get WebGL context for canvas");
+            }
+
+            renderContexts.push(new RenderContext(gl, scene, properties));
+        }
+
+        return renderContexts;
+    }
 
     /**
-     * Build the 3D scene
+     * Set up recurring rendering
      *
-     * @returns {SceneObject[]}
+     * @param {SceneObject[]} scene
+     * @param {RenderContext[]} renderContexts
      */
-    function buildScene() {
+    function startAnimationLoop(scene, renderContexts) {
+        let then;
 
-        return [
+        /**
+         * @callback FrameRequestCallback
+         * @param {DOMHighResTimeStamp} now
+         */
+        const renderAnimationCallback = (now) => {
+            const delta = (now - (then || now)) / 1000.0;
+            const rot = Mat4.mul(
+                Mat4.rotationX(now * 0.006),
+                Mat4.rotationY(now * 0.007)
+            );
+
+            for (const obj of scene) {
+                obj.matrix = rot;
+            }
+
+            for (const ctx of renderContexts) {
+                ctx.render();
+            }
+
+            then = now;
+            requestAnimationFrame(renderAnimationCallback);
+        };
+
+        requestAnimationFrame(renderAnimationCallback);
+    }
+
+    (() => {
+        /**
+         * Semantic flags to determine what to render in which context
+         *
+         * @enum {number}
+         * @readonly
+         */
+        const renderInclusion = {
+            NORMAL: 1 << 0,
+            EYE_DEMO: 1 << 1,
+            STEREOGRAM: 1 << 2,
+        };
+
+        const scene = [
             new SceneObject(
                 [
                     new CmdSetAttrib('a_position', 'main', {size: 3, stride: 6}),
@@ -1182,102 +1238,41 @@ window.addEventListener('load', () => {
                 }
             ),
         ];
-    }
 
-    /**
-     * Build render contexts
-     *
-     * @param {SceneObject[]} scene
-     * @param {Object.<string, Object>} contextPropertiesMap
-     *
-     * @returns {RenderContext[]}
-     */
-    function buildContexts(scene, contextPropertiesMap) {
-        /** @type {RenderContext[]} */
-        const renderContexts = [];
+        const contextDescriptions = new Map([
+            ['render',
+                {
+                    view: Mat4.translation(0.0, 0.0, 2.0),
+                    fragmentShaderUrl: 'shaders/fragment.frag',
+                    inclusionFlags: renderInclusion.NORMAL,
+                    zNear: 1.0,
+                    zFar: 3.0,
+                }
+            ],
+            ['left_eye',
+                {
+                    view: Mat4.translation(0.25, 0.0, 2.0),
+                    fragmentShaderUrl: 'shaders/depthmap.frag',
+                    clearColor: [1.0, 1.0, 1.0, 1.0,],
+                    inclusionFlags: renderInclusion.EYE_DEMO,
+                    zNear: 1.0,
+                    zFar: 3.0,
+                }
+            ],
+            ['right_eye',
+                {
+                    view: Mat4.translation(-0.25, 0.0, 2.0),
+                    fragmentShaderUrl: 'shaders/depthmap.frag',
+                    clearColor: [1.0, 1.0, 1.0, 1.0,],
+                    inclusionFlags: renderInclusion.EYE_DEMO,
+                    zNear: 1.0,
+                    zFar: 3.0,
+                }
+            ],
+        ]);
 
-        for (const [id, properties] of Object.entries(contextPropertiesMap)) {
-            const canvas = /** @type {HTMLCanvasElement} */ document.getElementById(id);
+        const renderContexts = buildRenderContexts(scene, contextDescriptions);
 
-            /** @type {WebGLRenderingContext} */
-            const gl = canvas.getContext('webgl');
-            if (!gl) {
-                continue;
-            }
-
-            renderContexts.push(new RenderContext(gl, scene, properties));
-        }
-
-        return renderContexts;
-    }
-
-    /**
-     * Set up recurring rendering
-     *
-     * @param {SceneObject[]} scene
-     * @param {RenderContext[]} contexts
-     */
-    function startAnimationLoop(scene, contexts) {
-        let then;
-
-        /**
-         * @callback FrameRequestCallback
-         * @param {DOMHighResTimeStamp} now
-         */
-        const renderAnimationCallback = (now) => {
-            const delta = (now - (then || now)) / 1000.0;
-            const rot = Mat4.mul(
-                Mat4.rotationX(now * 0.006),
-                Mat4.rotationY(now * 0.007)
-            );
-
-            for (const obj of scene) {
-                obj.matrix = rot;
-            }
-
-            for (const ctx of contexts) {
-                ctx.render();
-            }
-
-            then = now;
-            requestAnimationFrame(renderAnimationCallback);
-        };
-
-        requestAnimationFrame(renderAnimationCallback);
-    }
-
-    /* TODO: combine named function above into this anonymous one */
-    (() => {
-        /** @type {SceneObject[]} */
-        const scene = buildScene();
-
-        /** @type {RenderContext[]} */
-        const contexts = buildContexts(scene, {
-            'render': {
-                view: Mat4.translation(0.0, 0.0, 2.0),
-                fragmentShaderUrl: 'shaders/fragment.frag',
-                inclusionFlags: renderInclusion.NORMAL,
-                zNear: 1.0,
-                zFar: 3.0,
-            },
-            'left_eye': {
-                view: Mat4.translation(0.25, 0.0, 2.0),
-                fragmentShaderUrl: 'shaders/depthmap.frag',
-                clearColor: [1.0, 1.0, 1.0, 1.0,],
-                inclusionFlags: renderInclusion.EYE_DEMO,
-                zNear: 1.0,
-                zFar: 3.0,
-            },
-            'right_eye': {
-                view: Mat4.translation(-0.25, 0.0, 2.0),
-                fragmentShaderUrl: 'shaders/depthmap.frag',
-                clearColor: [1.0, 1.0, 1.0, 1.0,],
-                inclusionFlags: renderInclusion.EYE_DEMO,
-                zNear: 1.0,
-                zFar: 3.0,
-            },
-        });
-
-        startAnimationLoop(scene, contexts);
+        startAnimationLoop(scene, renderContexts);
     })();
 });
