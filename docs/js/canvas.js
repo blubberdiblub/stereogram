@@ -761,7 +761,7 @@ window.addEventListener('load', () => {
         static _determineUniforms(uniforms, gl, program) {
             const numUniforms = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
 
-            for (let index = 0; index < numUniforms; ++index) {
+            for (let index = 0; index < numUniforms; index++) {
                 const {name, type, size: count} = gl.getActiveUniform(program, index);
                 const location = gl.getUniformLocation(program, name);
 
