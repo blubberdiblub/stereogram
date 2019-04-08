@@ -519,14 +519,14 @@ window.addEventListener('load', () => {
 
             const byteOffset = this.offset * byteSize;
 
-            return [CmdSetAttrib._cmd(attrib.index, buffer, size, type, this.normalized, byteStride, byteOffset)];
+            return [CmdSetAttrib._cmd(attrib.location, buffer, size, type, this.normalized, byteStride, byteOffset)];
         }
 
-        static _cmd(index, buffer, size, type, normalized, stride, offset) {
+        static _cmd(location, buffer, size, type, normalized, stride, offset) {
             return (gl) => {
-                gl.enableVertexAttribArray(index);
+                gl.enableVertexAttribArray(location);
                 gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-                gl.vertexAttribPointer(index, size, type, normalized, stride, offset);
+                gl.vertexAttribPointer(location, size, type, normalized, stride, offset);
             };
         }
     }
@@ -787,16 +787,10 @@ window.addEventListener('load', () => {
 
             for (let index = 0; index < numAttribs; index++) {
                 const {name, type, size: count} = gl.getActiveAttrib(program, index);
-
-                // TODO: remove debugging code
                 const location = gl.getAttribLocation(program, name);
-                if (location != index) {
-                    console.error(`Disagreeing Attrib Location: ${index} -> ${name} -> ${location}`);
-                    throw(Error(`Disagreeing Attrib Location: ${index} -> ${name} -> ${location}`));
-                }
 
                 attribs.set(name, {
-                    index,
+                    location,
                     type,
                     size: RenderObject._getGLTypeSize(gl, type),
                     count,
