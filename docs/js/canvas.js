@@ -460,7 +460,7 @@ window.addEventListener('load', () => {
          * @param {string} attribName
          * @param {string} bufferName
          * @param {Object} properties
-         * @property {number} size
+         * @property {number} [size]
          * @property {boolean} [normalized=false]
          * @property {number} [stride=0]
          * @property {number} [offset=0]
@@ -470,24 +470,56 @@ window.addEventListener('load', () => {
 
             this.attribName = attribName;
             this.bufferName = bufferName;
-            this.size = size;
+            this.size = size || 0;
             this.normalized = normalized;
-            this.stride = stride;
-            this.offset = offset;
+            this.stride = stride || 0;
+            this.offset = offset || 0;
+
+            if (this.size && (this.size < 1 || this.size > 4)) {
+                throw RangeError("size must be between 1 and 4 or null");
+            }
+
+            if (this.stride < 0) {
+                throw RangeError("stride must not be negative");
+            }
+
+            if (this.offset < 0) {
+                throw RangeError("offset must not be negative");
+            }
         }
 
         prepare(renderObject) {
-            const attribProps = renderObject.attribs.get(this.attribName);
-            if (attribProps === undefined) {
+            const attrib = renderObject.attribs.get(this.attribName);
+            if (attrib === undefined) {
                 return [];
             }
 
-            const {index} = attribProps;
-            const {buffer, byteSize, type} = renderObject.attribBuffers.get(this.bufferName);
+            const attribBuffer = renderObject.attribBuffers.get(this.bufferName);
+            if (attribBuffer === undefined) {
+                throw ReferenceError(`missing attribute buffer ${this.bufferName}`);
+            }
+
+            const {buffer, byteSize, type, length} = attribBuffer;
+
+            if (this.offset > length) {
+                throw RangeError("offset beyond end of buffer");
+            }
+
+            const size = this.size || attrib.size;
+
+            if (this.offset + size > length) {
+                throw RangeError("no attribute fits before end of buffer");
+            }
+
             const byteStride = this.stride * byteSize;
+
+            if (byteStride > 255) {
+                throw RangeError("stride is too big");
+            }
+
             const byteOffset = this.offset * byteSize;
 
-            return [CmdSetAttrib._cmd(index, buffer, this.size, type, this.normalized, byteStride, byteOffset)];
+            return [CmdSetAttrib._cmd(attrib.index, buffer, size, type, this.normalized, byteStride, byteOffset)];
         }
 
         static _cmd(index, buffer, size, type, normalized, stride, offset) {
@@ -504,24 +536,57 @@ window.addEventListener('load', () => {
          * @param {string} bufferName
          * @param {drawMode} mode
          * @param {Object} properties
-         * @property {number} count
+         * @property {number} [count=Infinity]
          * @property {number} [offset=0]
          */
-        constructor(bufferName, mode, {count, offset=0, ...rest}={}) {
+        constructor(bufferName, mode, {count=Infinity, offset=0, ...rest}={}) {
             super(rest);
 
             this.bufferName = bufferName;
             this.mode = mode;
-            this.count = count;
-            this.offset = offset;
+            this.count = (count === undefined || count === null) ? Infinity : count;
+            this.offset = offset || 0;
+
+            if (this.count < 0) {
+                throw RangeError("count must not be negative");
+            }
+
+            if (this.offset < 0) {
+                throw RangeError("offset must not be negative");
+            }
+
+            if (!this.count) {
+                this.inclusionFlags = 0;
+            }
         }
 
         prepare(renderObject) {
-            const {buffer, byteSize, type} = renderObject.elementBuffers.get(this.bufferName);
+            const elementBuffer = renderObject.elementBuffers.get(this.bufferName);
+            if (elementBuffer === undefined) {
+                throw ReferenceError(`missing element buffer ${this.bufferName}`);
+            }
+
+            const {buffer, byteSize, type, length} = elementBuffer;
+
+            if (this.offset > length) {
+                throw RangeError("offset beyond end of buffer");
+            }
+
+            let count = this.count;
+            if (count === Infinity) {
+                count = length - this.offset;
+            } else if (count > length - this.offset) {
+                throw RangeError("count goes beyond end of buffer");
+            }
+
+            if (!count) {
+                return [];
+            }
+
             const byteOffset = this.offset * byteSize;
             const mode = drawMode.toGLMode(renderObject.gl, this.mode);
 
-            return [CmdDrawElements._cmd(buffer, mode, this.count, type, byteOffset)];
+            return [CmdDrawElements._cmd(buffer, mode, count, type, byteOffset)];
         }
 
         static _cmd(buffer, mode, count, type, offset) {
@@ -697,13 +762,13 @@ window.addEventListener('load', () => {
             const numUniforms = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
 
             for (let index = 0; index < numUniforms; ++index) {
-                const {name, type, size} = gl.getActiveUniform(program, index);
+                const {name, type, size: count} = gl.getActiveUniform(program, index);
                 const location = gl.getUniformLocation(program, name);
 
                 uniforms.set(name, {
                     location,
                     type,
-                    size,
+                    count,
                 });
             }
         }
@@ -721,7 +786,7 @@ window.addEventListener('load', () => {
             const numAttribs = gl.getProgramParameter(program, gl.ACTIVE_ATTRIBUTES);
 
             for (let index = 0; index < numAttribs; index++) {
-                const {name, type, size} = gl.getActiveAttrib(program, index);
+                const {name, type, size: count} = gl.getActiveAttrib(program, index);
 
                 // TODO: remove debugging code
                 const location = gl.getAttribLocation(program, name);
@@ -733,8 +798,34 @@ window.addEventListener('load', () => {
                 attribs.set(name, {
                     index,
                     type,
-                    size,
+                    size: RenderObject._getGLTypeSize(gl, type),
+                    count,
                 });
+            }
+        }
+
+        /**
+         * Determine how many numbers a WebGL type consists of.
+         *
+         * @private
+         *
+         * @param {WebGLRenderingContext} gl
+         * @param {GLenum} type
+         *
+         * @returns {number}
+         */
+        static _getGLTypeSize(gl, type) {
+            switch (type) {
+                case gl.FLOAT:
+                    return 1;
+                case gl.FLOAT_VEC2:
+                    return 2;
+                case gl.FLOAT_VEC3:
+                    return 3;
+                case gl.FLOAT_VEC4:
+                    return 4;
+                default:
+                    throw TypeError("unsupported WebGL type");
             }
         }
 
@@ -811,6 +902,7 @@ window.addEventListener('load', () => {
                     buffer,
                     byteSize,
                     type,
+                    length: data.length,
                 });
             }
 
@@ -839,6 +931,7 @@ window.addEventListener('load', () => {
                     buffer,
                     byteSize,
                     type,
+                    length: indices.length,
                 });
             }
 
@@ -1042,9 +1135,9 @@ window.addEventListener('load', () => {
         return [
             new SceneObject(
                 [
-                    new CmdSetAttrib('a_position', 'main', {size: 3, normalized: false, stride: 6, offset: 0}),
-                    new CmdSetAttrib('a_color', 'main', {size: 3, normalized: false, stride: 6, offset: 3}),
-                    new CmdDrawElements('main', drawMode.TRIANGLES, {count: 36, offset: 0}),
+                    new CmdSetAttrib('a_position', 'main', {size: 3, stride: 6}),
+                    new CmdSetAttrib('a_color', 'main', {size: 3, stride: 6, offset: 3}),
+                    new CmdDrawElements('main', drawMode.TRIANGLES),
                 ],
                 {
                     main: {
