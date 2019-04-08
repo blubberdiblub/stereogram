@@ -426,15 +426,85 @@ window.addEventListener('load', () => {
     };
 
     /**
+     * Object within which CmdUniform* should look for its value
+     *
+     * @enum {number}
+     * @readonly
+     */
+    const uniformSource = {
+        RENDER_OBJECT: 1,
+        RENDER_CONTEXT: 2,
+        SCENE_OBJECT: 3,
+        FIRST_FOUND: 0,
+
+        /**
+         * Get a callback that fetches the value from a named property of the specified source uniform
+         *
+         * @param {uniformSource} source
+         * @param {string} name
+         * @param {RenderObject} renderObject
+         * @param {RenderContext} renderContext
+         *
+         * @returns {function():*}
+         */
+        getPropertyReader(source, name, renderObject, renderContext) {
+            let candidates;
+
+            switch (source) {
+                case uniformSource.RENDER_OBJECT:
+                    candidates = [renderObject];
+                    break;
+
+                case uniformSource.RENDER_CONTEXT:
+                    candidates = [renderContext];
+                    break;
+
+                case uniformSource.SCENE_OBJECT:
+                    candidates = [renderObject.sceneObject];
+                    break;
+
+                case uniformSource.FIRST_FOUND:
+                    candidates = [renderObject, renderContext, renderObject.sceneObject];
+                    break;
+
+                default:
+                    throw RangeError("unsupported uniform source");
+            }
+
+            for (const obj of candidates) {
+                if (name in obj) {
+                    return uniformSource._makePropertyReader(obj, name);
+                }
+            }
+
+            throw ReferenceError(`property "${name}" not found`);
+        },
+
+        /**
+         * @private
+         *
+         * @param {Object} obj
+         * @param {string} name
+         *
+         * @returns {function():*}
+         */
+        _makePropertyReader(obj, name) {
+            return () => obj[name];
+        }
+    };
+
+    /**
      * Render command in the context of an object
      *
      * For the user of the class, this is fairly abstract, while the actual
      * implementation can actually consist of any number of function calls.
      *
-     * When a RenderContext select a command for inclusion, it will prepare
+     * When a RenderContext selects a command for inclusion, it will prepare
      * commands tailored to the RenderObject in that particular context.
+     *
+     * @private
      */
-    class RenderCommand {
+    class _RenderCommand {
         /**
          * @param {Object} properties
          * @property {number} [inclusionFlags=~0]
@@ -447,15 +517,123 @@ window.addEventListener('load', () => {
          * Prepare concrete commands for an object in a RenderContext
          *
          * @param {RenderObject} renderObject
+         * @param {RenderContext} renderContext
          *
          * @returns {(function(WebGLRenderingContext):void)[]}
          */
-        prepare(renderObject) {
+        prepare(renderObject, renderContext) { // jshint ignore:line
             throw(Error("use a concrete implementation"));
         }
     }
 
-    class CmdSetAttrib extends RenderCommand {
+    /**
+     * Base class for all uniform commands
+     *
+     * @private
+     */
+    class _CmdUniform extends _RenderCommand {
+        /**
+         * @param {string} uniformName
+         * @param {Object} properties
+         * @property {uniformSource} [source=uniformSource.FIRST_FOUND]
+         */
+        constructor(uniformName, {source=uniformSource.FIRST_FOUND, ...rest}) {
+            super(rest);
+
+            this.uniformName = uniformName;
+            this.source = source;
+        }
+    }
+
+    /**
+     * Write to a matrix uniform
+     */
+    class CmdUniformMatrix extends _CmdUniform {
+        /**
+         * @param {string} uniformName
+         * @param {string} propertyName
+         * @param {Object} properties
+         * @property {boolean} [transpose=false]
+         */
+        constructor(uniformName, propertyName, {transpose=false, ...rest}={}) {
+            super(uniformName, rest);
+
+            this.propertyName = propertyName;
+            this.transpose = transpose;
+        }
+
+        prepare(renderObject, renderContext) {
+            const reader = uniformSource.getPropertyReader(this.source, this.propertyName, renderObject, renderContext);
+
+            const uniform = renderObject.uniforms.get(this.uniformName);
+            if (uniform === undefined) {
+                return [];
+            }
+
+            const {location, type} = uniform;
+            const gl = renderContext.gl;
+            const value = reader();
+
+            switch (type) {
+                case gl.FLOAT_MAT4:
+                    if (value instanceof Mat4) {
+                        return [CmdUniformMatrix._cmdMat4(location, this.transpose, reader)];
+                    }
+
+                    if (value instanceof Float32Array && value.length === 16) {
+                        return [CmdUniformMatrix._cmdF32A16(location, this.transpose, reader)];
+                    }
+
+                    throw TypeError("property is not a 4x4 matrix");
+
+                case gl.FLOAT_MAT3:
+                    if (value instanceof Float32Array && value.length === 9) {
+                        return [CmdUniformMatrix._cmdF32A9(location, this.transpose, reader)];
+                    }
+
+                    throw TypeError("property is not a 3x3 matrix");
+
+                case gl.FLOAT_MAT2:
+                    if (value instanceof Float32Array && value.length === 4) {
+                        return [CmdUniformMatrix._cmdF32A4(location, this.transpose, reader)];
+                    }
+
+                    throw TypeError("property is not a 2x2 matrix");
+
+                default:
+                    throw TypeError("uniform is not a supported matrix");
+            }
+        }
+
+        static _cmdMat4(location, transpose, reader) {
+            return (gl) => {
+                gl.uniformMatrix4fv(location, transpose, reader().data);
+            };
+        }
+
+        static _cmdF32A16(location, transpose, reader) {
+            return (gl) => {
+                gl.uniformMatrix4fv(location, transpose, reader());
+            };
+        }
+
+        static _cmdF32A9(location, transpose, reader) {
+            return (gl) => {
+                gl.uniformMatrix3fv(location, transpose, reader());
+            };
+        }
+
+        static _cmdF32A4(location, transpose, reader) {
+            return (gl) => {
+                gl.uniformMatrix2fv(location, transpose, reader());
+            };
+        }
+    }
+
+    /**
+     * Set up an attribute
+     */
+    class CmdSetAttrib extends _RenderCommand {
         /**
          * @param {string} attribName
          * @param {string} bufferName
@@ -488,7 +666,7 @@ window.addEventListener('load', () => {
             }
         }
 
-        prepare(renderObject) {
+        prepare(renderObject, ignored) {
             const attrib = renderObject.attribs.get(this.attribName);
             if (attrib === undefined) {
                 return [];
@@ -531,7 +709,10 @@ window.addEventListener('load', () => {
         }
     }
 
-    class CmdDrawElements extends RenderCommand {
+    /**
+     * Draw indexed elements
+     */
+    class CmdDrawElements extends _RenderCommand {
         /**
          * @param {string} bufferName
          * @param {drawMode} mode
@@ -560,7 +741,7 @@ window.addEventListener('load', () => {
             }
         }
 
-        prepare(renderObject) {
+        prepare(renderObject, renderContext) {
             const elementBuffer = renderObject.elementBuffers.get(this.bufferName);
             if (elementBuffer === undefined) {
                 throw ReferenceError(`missing element buffer ${this.bufferName}`);
@@ -584,7 +765,7 @@ window.addEventListener('load', () => {
             }
 
             const byteOffset = this.offset * byteSize;
-            const mode = drawMode.toGLMode(renderObject.gl, this.mode);
+            const mode = drawMode.toGLMode(renderContext.gl, this.mode);
 
             return [CmdDrawElements._cmd(buffer, mode, count, type, byteOffset)];
         }
@@ -602,7 +783,7 @@ window.addEventListener('load', () => {
      */
     class SceneObject {
         /**
-         * @param {RenderCommand[]} renderCommands
+         * @param {_RenderCommand[]} renderCommands
          * @param {(Object.<string, Object>|Iterable.<string, Object>)} attribData
          * @param {(Object.<string, Object>|Iterable.<string, Object>)} elementIndices
          * @param {Object} properties
@@ -709,28 +890,28 @@ window.addEventListener('load', () => {
      */
     class RenderObject {
         /**
-         * @param {WebGLRenderingContext} gl
          * @param {SceneObject} sceneObject
+         * @param {WebGLRenderingContext} gl
+         * @param {RenderContext} renderContext
          * @param {Object} properties
          * @property {string} vertexShaderUrl
          * @property {string} fragmentShaderUrl
          */
-        constructor(gl, sceneObject, {
+        constructor(sceneObject, gl, renderContext, {
             inclusionFlags,
             vertexShaderUrl = 'shaders/vertex.vert',
             fragmentShaderUrl = 'shaders/fragment.frag',
         }) {
-            this.gl = gl;
             this.sceneObject = sceneObject;
-            this.program = compileAndLinkProgram(this.gl, vertexShaderUrl, fragmentShaderUrl);
+            this.program = compileAndLinkProgram(gl, vertexShaderUrl, fragmentShaderUrl);
             this.uniforms = new Map();
             this.attribs = new Map();
             this.attribBuffers = new Map();
             this.elementBuffers = new Map();
-            this.renderCommands = [];
+            this.preparedCommands = [];
 
-            RenderObject._determineUniforms(this.uniforms, this.gl, this.program);
-            RenderObject._determineAttribs(this.attribs, this.gl, this.program);
+            RenderObject._determineUniforms(this.uniforms, gl, this.program);
+            RenderObject._determineAttribs(this.attribs, gl, this.program);
 
             const relevantCommands = this.sceneObject.renderCommands
                 .filter(command => command.inclusionFlags & inclusionFlags);
@@ -738,14 +919,14 @@ window.addEventListener('load', () => {
             const usedAttribBuffers = RenderObject._determineUsedAttribBuffers(relevantCommands, this.attribs);
             const usedElementBuffers = RenderObject._determineUsedElementBuffers(relevantCommands);
 
-            RenderObject._allocateAttribBuffers(this.attribBuffers, this.gl,
+            RenderObject._allocateAttribBuffers(this.attribBuffers, gl,
                 usedAttribBuffers, this.sceneObject.attribArrays);
 
-            RenderObject._allocateElementBuffers(this.elementBuffers, this.gl,
+            RenderObject._allocateElementBuffers(this.elementBuffers, gl,
                 usedElementBuffers, this.sceneObject.elementArrays);
 
             for (const command of relevantCommands) {
-                this.renderCommands.push(...command.prepare(this));
+                this.preparedCommands.push(...command.prepare(this, renderContext));
             }
         }
 
@@ -828,7 +1009,7 @@ window.addEventListener('load', () => {
          *
          * @private
          *
-         * @param {RenderCommand[]} commands
+         * @param {_RenderCommand[]} commands
          * @param {Map<string, Object>} attribs
          *
          * @returns {Set<string>}
@@ -856,7 +1037,7 @@ window.addEventListener('load', () => {
          *
          * @private
          *
-         * @param {RenderCommand[]} commands
+         * @param {_RenderCommand[]} commands
          *
          * @returns {Set<string>}
          */
@@ -992,25 +1173,27 @@ window.addEventListener('load', () => {
             ...objectProperties
         }) {
             this.gl = gl;
-
             this.clearColor = clearColor;
             this.view = view;
-
-            this.fiddleCanvas(true);
-
+            this.aspectX = 1.0;
+            this.aspectY = 1.0;
             this.fieldOfView = fieldOfView;
             this.zNear = zNear;
             this.zFar = zFar;
-
-            this.calculatePerspective();
-
+            this.projection = null;
             this.renderObjects = [];
+
+            this._fiddleCanvas(true);
+            this._calculatePerspective();
+
             for (const sceneObject of scene) {
                 if (!(sceneObject.inclusionFlags & inclusionFlags)) {
                     continue;
                 }
 
-                const renderObject = new RenderObject(this.gl, sceneObject, Object.assign({inclusionFlags}, objectProperties));
+                const renderObject = new RenderObject(sceneObject, this.gl, this,
+                    Object.assign({inclusionFlags}, objectProperties));
+
                 this.renderObjects.push(renderObject);
             }
         }
@@ -1018,11 +1201,13 @@ window.addEventListener('load', () => {
         /**
          * Ensure the backing buffer of the canvas has the right size
          *
-         * @param {boolean} [force]
+         * @private
+         *
+         * @param {boolean} [force=false]
          *
          * @returns {boolean}
          */
-        fiddleCanvas(force) {
+        _fiddleCanvas(force=false) {
             const canvas = this.gl.canvas;
 
             const width = Math.ceil(canvas.scrollWidth);
@@ -1044,8 +1229,12 @@ window.addEventListener('load', () => {
 
         /**
          * Calculate perspective matrix taking current aspect ratio into account
+         *
+         * @private
+         *
+         * @returns {void}
          */
-        calculatePerspective() {
+        _calculatePerspective() {
             const range = Math.tan(Math.PI * 0.5 * (1.0 - this.fieldOfView / 180.0));
             const viewRangeX = range * this.aspectX;
             const viewRangeY = range * this.aspectY;
@@ -1066,12 +1255,14 @@ window.addEventListener('load', () => {
 
         /**
          * Render objects with current settings
+         *
+         * @returns {void}
          */
         render() {
             const gl = this.gl;
 
-            if (this.fiddleCanvas()) {
-                this.calculatePerspective();
+            if (this._fiddleCanvas()) {
+                this._calculatePerspective();
             }
 
             console.assert(gl.drawingBufferWidth === gl.canvas.width);
@@ -1084,24 +1275,10 @@ window.addEventListener('load', () => {
             gl.enable(gl.DEPTH_TEST);
 
             for (const obj of this.renderObjects) {
-                const sceneObj = obj.sceneObject;
-
                 gl.useProgram(obj.program);
 
-                const uniforms = obj.uniforms;
-
-                if (uniforms.has('u_model_matrix')) {
-                    gl.uniformMatrix4fv(uniforms.get('u_model_matrix').location, false, sceneObj.matrix.data);
-                }
-                if (uniforms.has('u_view_matrix')) {
-                    gl.uniformMatrix4fv(uniforms.get('u_view_matrix').location, false, this.view.data);
-                }
-                if (uniforms.has('u_projection_matrix')) {
-                    gl.uniformMatrix4fv(uniforms.get('u_projection_matrix').location, false, this.projection.data);
-                }
-
-                for (const renderFunction of obj.renderCommands) {
-                    renderFunction(gl);
+                for (const command of obj.preparedCommands) {
+                    command(gl);
                 }
             }
         }
@@ -1185,6 +1362,9 @@ window.addEventListener('load', () => {
         const scene = [
             new SceneObject(
                 [
+                    new CmdUniformMatrix('u_model_matrix', 'matrix', {source: uniformSource.SCENE_OBJECT}),
+                    new CmdUniformMatrix('u_view_matrix', 'view', {source: uniformSource.RENDER_CONTEXT}),
+                    new CmdUniformMatrix('u_projection_matrix', 'projection', {source: uniformSource.RENDER_CONTEXT}),
                     new CmdSetAttrib('a_position', 'main', {size: 3, stride: 6}),
                     new CmdSetAttrib('a_color', 'main', {size: 3, stride: 6, offset: 3}),
                     new CmdDrawElements('main', drawMode.TRIANGLES),
