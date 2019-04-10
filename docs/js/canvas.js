@@ -1449,6 +1449,16 @@ window.addEventListener('load', () => {
                     zFar: 3.0,
                 }
             ],
+            ['stereogram',
+                {
+                    view: Mat4.translation(0.0, 0.0, 2.0),
+                    fragmentShaderUrl: 'shaders/depthmap.frag',
+                    clearColor: [1.0, 1.0, 1.0, 1.0,],
+                    inclusionFlags: renderInclusion.STEREOGRAM,
+                    zNear: 1.0,
+                    zFar: 3.0,
+                }
+            ]
         ]);
 
         const renderContexts = buildRenderContexts(scene, contextDescriptions);
