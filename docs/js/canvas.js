@@ -1297,7 +1297,7 @@ window.addEventListener('load', () => {
 
         const renderContexts = [];
 
-        for (const [selector, properties] of contextDescriptions[Symbol.iterator] === undefined ?
+        for (const [selector, stages] of contextDescriptions[Symbol.iterator] === undefined ?
             Object.entries(contextDescriptions) : contextDescriptions
         ) {
             const matchList = canvasList.filter(element => element.matches(selector));
@@ -1314,7 +1314,9 @@ window.addEventListener('load', () => {
                 throw Error("cannot get WebGL context for canvas");
             }
 
-            renderContexts.push(new RenderContext(gl, scene, properties));
+            for (const properties of stages) {
+                renderContexts.push(new RenderContext(gl, scene, properties));
+            }
         }
 
         return renderContexts;
@@ -1429,7 +1431,7 @@ window.addEventListener('load', () => {
         ];
 
         const contextDescriptions = new Map([
-            ['#render',
+            ['#render', [
                 {
                     view: Mat4.translation(0.0, 0.0, 2.0),
                     fragmentShaderUrl: 'shaders/fragment.frag',
@@ -1437,8 +1439,8 @@ window.addEventListener('load', () => {
                     zNear: 1.0,
                     zFar: 3.0,
                 }
-            ],
-            ['#left_eye',
+            ]],
+            ['#left_eye', [
                 {
                     view: Mat4.translation(0.25, 0.0, 2.0),
                     fragmentShaderUrl: 'shaders/depthmap.frag',
@@ -1447,8 +1449,8 @@ window.addEventListener('load', () => {
                     zNear: 1.0,
                     zFar: 3.0,
                 }
-            ],
-            ['#right_eye',
+            ]],
+            ['#right_eye', [
                 {
                     view: Mat4.translation(-0.25, 0.0, 2.0),
                     fragmentShaderUrl: 'shaders/depthmap.frag',
@@ -1457,8 +1459,8 @@ window.addEventListener('load', () => {
                     zNear: 1.0,
                     zFar: 3.0,
                 }
-            ],
-            ['#stereogram',
+            ]],
+            ['#stereogram', [
                 {
                     view: Mat4.translation(0.0, 0.0, 2.0),
                     fragmentShaderUrl: 'shaders/depthmap.frag',
@@ -1467,7 +1469,7 @@ window.addEventListener('load', () => {
                     zNear: 1.0,
                     zFar: 3.0,
                 }
-            ],
+            ]],
         ]);
 
         const renderContexts = buildRenderContexts(scene, contextDescriptions);
