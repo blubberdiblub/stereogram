@@ -162,30 +162,34 @@ window.addEventListener('load', () => {
      * efficiently. But you need to be aware of it when reading matrix value
      * or writing code.
      */
-    class Mat4 {
+    class Mat4 extends Float32Array {
         /**
-         * @param {(Mat4|number[])} [data]
+         * @param {(Mat4|number[]|number)} [data=16]
          */
-        constructor(data) {
-            if (data === undefined) {
-                this.data = Mat4._IDENTITY.slice();
+        constructor(data=16) {
+            if (data instanceof Mat4 || data === 16) {
+                super(data);
                 return;
             }
 
-            if (data instanceof Mat4) {
-                this.data = data.data.slice();
-                return;
-            }
-
-            if (!Array.isArray(data)) {
-                throw new Error("wrong type");
+            if (!(data instanceof Float32Array) && !(data instanceof Float64Array) && !Array.isArray(data)) {
+                throw new TypeError("expected array of floats");
             }
 
             if (data.length !== 16) {
-                throw new Error("expected length 16");
+                throw new RangeError("expected length 16");
             }
 
-            this.data = new Float32Array(data);
+            super(data);
+        }
+
+        /**
+         * Create a new identity matrix
+         *
+         * @returns {Mat4}
+         */
+        static identity() {
+            return new Mat4(Mat4._IDENTITY);
         }
 
         /**
@@ -288,13 +292,11 @@ window.addEventListener('load', () => {
          * @returns {Mat4}
          */
         transposition() {
-            const data = this.data;
-
             return new Mat4([
-                data[0], data[4], data[ 8], data[12],
-                data[1], data[5], data[ 9], data[13],
-                data[2], data[6], data[10], data[14],
-                data[3], data[7], data[11], data[15],
+                this[0], this[4], this[ 8], this[12],
+                this[1], this[5], this[ 9], this[13],
+                this[2], this[6], this[10], this[14],
+                this[3], this[7], this[11], this[15],
             ]);
         }
 
@@ -313,14 +315,14 @@ window.addEventListener('load', () => {
                 a01, a11, a21, a31,
                 a02, a12, a22, a32,
                 a03, a13, a23, a33,
-            ] = a.data;
+            ] = a;
 
             const [
                 b00, b10, b20, b30,
                 b01, b11, b21, b31,
                 b02, b12, b22, b32,
                 b03, b13, b23, b33,
-            ] = b.data;
+            ] = b;
 
             return new Mat4([
                 a00 * b00 + a01 * b10 + a02 * b20 + a03 * b30,
@@ -346,7 +348,7 @@ window.addEventListener('load', () => {
         }
     }
 
-    Mat4._IDENTITY = new Float32Array([
+    Mat4._IDENTITY = new Mat4([
         1.0, 0.0, 0.0, 0.0,
         0.0, 1.0, 0.0, 0.0,
         0.0, 0.0, 1.0, 0.0,
@@ -607,7 +609,7 @@ window.addEventListener('load', () => {
 
         static _cmdMat4(location, transpose, reader) {
             return (gl) => {
-                gl.uniformMatrix4fv(location, transpose, reader().data);
+                gl.uniformMatrix4fv(location, transpose, reader());
             };
         }
 
@@ -792,7 +794,7 @@ window.addEventListener('load', () => {
          */
         constructor(
             renderCommands = [], attribData = {}, elementIndices = {},
-            {inclusionFlags = ~0, matrix = new Mat4()} = {}
+            {inclusionFlags = ~0, matrix = Mat4.identity()} = {}
         ) {
             this.renderCommands = Array.from(renderCommands);
             this.attribArrays = new Map();
@@ -1165,7 +1167,7 @@ window.addEventListener('load', () => {
          */
         constructor(gl, scene, {
             clearColor = [0.0, 0.0, 0.0, 0.0],
-            view = new Mat4(),
+            view = Mat4.identity(),
             fieldOfView = 90.0,
             zNear = 1.0,
             zFar = Infinity,
