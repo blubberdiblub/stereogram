@@ -789,13 +789,14 @@ window.addEventListener('load', () => {
          * @param {(Object.<string, Object>|Iterable.<string, Object>)} attribData
          * @param {(Object.<string, Object>|Iterable.<string, Object>)} elementIndices
          * @param {Object} properties
-         * @property {number} [inclusionFlags]
-         * @property {Mat4} [matrix]
+         * @property {number} [inclusionFlags=~0]
+         * @property {Mat4} [matrix=Mat4.identity()]
          */
         constructor(
             renderCommands = [], attribData = {}, elementIndices = {},
             {inclusionFlags = ~0, matrix = Mat4.identity()} = {}
         ) {
+            /** @type {_RenderCommand[]} */
             this.renderCommands = Array.from(renderCommands);
             this.attribArrays = new Map();
             this.elementArrays = new Map();
@@ -896,6 +897,7 @@ window.addEventListener('load', () => {
          * @param {WebGLRenderingContext} gl
          * @param {RenderStage} renderStage
          * @param {Object} properties
+         * @property {number} inclusionFlags
          * @property {string} vertexShaderUrl
          * @property {string} fragmentShaderUrl
          */
@@ -1158,12 +1160,12 @@ window.addEventListener('load', () => {
          * @param {WebGLRenderingContext} gl
          * @param {SceneObject[]} scene
          * @param {Object} properties
-         * @property {number[]} clearColor
-         * @property {Mat4} view
-         * @property {number} fieldOfView
-         * @property {number} zNear
-         * @property {number} zFar
-         * @property {number} inclusionFlags
+         * @property {number[]} [clearColor=[0.0, 0.0, 0.0, 0.0]]
+         * @property {Mat4} [view=Mat4.identity()]
+         * @property {number} [fieldOfView=90.0]
+         * @property {number} [zNear=1.0]
+         * @property {number} [zFar=Infinity]
+         * @property {number} [inclusionFlags=~0]
          */
         constructor(gl, scene, {
             clearColor = [0.0, 0.0, 0.0, 0.0],
@@ -1389,6 +1391,7 @@ window.addEventListener('load', () => {
      * @returns {RenderContext[]}
      */
     function buildRenderContexts(scene, contextDescriptions) {
+        /** @type {HTMLCanvasElement[]} */
         const canvasList = Array.from(document.getElementsByTagName('canvas'));
 
         const renderContexts = [];
