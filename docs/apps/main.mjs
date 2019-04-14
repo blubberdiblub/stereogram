@@ -1,8 +1,8 @@
 'use strict';
 
-import * as renderUtil from './renderutil.mjs';
-import * as render from "./render/render.mjs";
-import {Mat4} from "./mat4.mjs";
+import * as render from "../modules/render/index.mjs";
+
+import {Mat4} from "../modules/Mat4.mjs";
 
 /**
  * Set up recurring rendering
@@ -169,7 +169,7 @@ window.addEventListener('load', () => {
             ]],
         ]);
 
-        const renderContexts = renderUtil.buildRenderContexts(scene, contextDescriptions);
+        const renderContexts = render.buildRenderContexts(scene, contextDescriptions);
 
         startAnimationLoop(scene, renderContexts);
     })();

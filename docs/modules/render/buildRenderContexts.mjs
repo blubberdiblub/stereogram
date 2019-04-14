@@ -1,6 +1,6 @@
 'use strict';
 
-import {RenderContext} from "./render/render.mjs";
+import {RenderContext} from "./RenderContext.mjs";
 
 /**
  * Build render contexts

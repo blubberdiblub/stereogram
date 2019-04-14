@@ -17,11 +17,12 @@ export class Mat4 extends Float32Array {
      */
     constructor(data=16) {
         if (data instanceof Mat4 || data === 16) {
+            // noinspection JSCheckFunctionSignatures
             super(data);
             return;
         }
 
-        if (!(data instanceof Float32Array) && !(data instanceof Float64Array) && !Array.isArray(data)) {
+        if (!(data instanceof Float32Array || data instanceof Float64Array || Array.isArray(data))) {
             throw new TypeError("expected array of floats");
         }
 
@@ -29,6 +30,7 @@ export class Mat4 extends Float32Array {
             throw new RangeError("expected length 16");
         }
 
+        // noinspection JSCheckFunctionSignatures
         super(data);
     }
 
