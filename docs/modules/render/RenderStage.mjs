@@ -17,6 +17,7 @@ export class RenderStage {
      * @property {number} [fieldOfView=90.0]
      * @property {number} [zNear=1.0]
      * @property {number} [zFar=Infinity]
+     * @property {boolean} [frameBuffer=false]
      * @property {number} [inclusionFlags=~0]
      */
     constructor(gl, scene, {
@@ -25,6 +26,7 @@ export class RenderStage {
         fieldOfView = 90.0,
         zNear = 1.0,
         zFar = Infinity,
+        frameBuffer = false,
         inclusionFlags = ~0,
         ...objectProperties
     }) {
@@ -35,6 +37,7 @@ export class RenderStage {
         this.zNear = zNear;
         this.zFar = zFar;
         this.projection = null;
+        this.frameBuffer = null;
         this.renderObjects = [];
 
         this._fieldOfView = NaN;
@@ -45,6 +48,15 @@ export class RenderStage {
         this._zFar = NaN;
 
         this._initPerspective();
+
+        if (frameBuffer) {
+            this.frameBuffer = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this.frameBuffer);
+
+            // TODO: fill in
+
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        }
 
         for (const sceneObject of scene) {
             if (!(sceneObject.inclusionFlags & inclusionFlags)) {
