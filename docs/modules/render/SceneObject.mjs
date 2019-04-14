@@ -11,9 +11,9 @@ export class SceneObject {
      * @param {_RenderCommand[]} renderCommands
      * @param {(Object.<string, Object>|Iterable.<string, Object>)} attribData
      * @param {(Object.<string, Object>|Iterable.<string, Object>)} elementIndices
-     * @param {Object} properties
-     * @property {number} [inclusionFlags=~0]
-     * @property {Mat4} [matrix=Mat4.identity()]
+     * @param {Object} [properties={}]
+     * @param {number} [properties.inclusionFlags=~0]
+     * @param {Mat4} [properties.matrix=Mat4.identity()]
      */
     constructor(
         renderCommands = [], attribData = {}, elementIndices = {},

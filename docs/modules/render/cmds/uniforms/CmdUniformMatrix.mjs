@@ -11,8 +11,8 @@ export class CmdUniformMatrix extends _CmdUniform {
     /**
      * @param {string} uniformName
      * @param {string} propertyName
-     * @param {Object} properties
-     * @property {boolean} [transpose=false]
+     * @param {Object} [properties={}]
+     * @param {boolean} [properties.transpose=false]
      */
     constructor(uniformName, propertyName, {transpose=false, ...rest}={}) {
         super(uniformName, rest);

@@ -10,9 +10,9 @@ export class CmdDrawElements extends _RenderCommand {
     /**
      * @param {string} bufferName
      * @param {drawMode} mode
-     * @param {Object} properties
-     * @property {number} [count=Infinity]
-     * @property {number} [offset=0]
+     * @param {Object} [properties={}]
+     * @param {number} [properties.count=Infinity]
+     * @param {number} [properties.offset=0]
      */
     constructor(bufferName, mode, {count=Infinity, offset=0, ...rest}={}) {
         super(rest);

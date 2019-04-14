@@ -12,7 +12,7 @@ export class _CmdUniform extends _RenderCommand {
     /**
      * @param {string} uniformName
      * @param {Object} properties
-     * @property {uniformSource} [source=uniformSource.FIRST_FOUND]
+     * @param {uniformSource} [properties.source=uniformSource.FIRST_FOUND]
      */
     constructor(uniformName, {source=uniformSource.FIRST_FOUND, ...rest}) {
         super(rest);

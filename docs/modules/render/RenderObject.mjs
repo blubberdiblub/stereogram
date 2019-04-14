@@ -14,9 +14,9 @@ export class RenderObject {
      * @param {WebGLRenderingContext} gl
      * @param {RenderStage} renderStage
      * @param {Object} properties
-     * @property {number} inclusionFlags
-     * @property {string} vertexShaderUrl
-     * @property {string} fragmentShaderUrl
+     * @param {number} properties.inclusionFlags
+     * @param {string} [properties.vertexShaderUrl='shaders/vertex.vert']
+     * @param {string} [properties.fragmentShaderUrl='shaders/fragment.frag']
      */
     constructor(sceneObject, gl, renderStage, {
         inclusionFlags,
@@ -243,9 +243,7 @@ export class RenderObject {
      * @param {WebGLRenderingContext} gl
      * @param {ArrayBuffer} bufferArray
      *
-     * @returns {Object}
-     * @property {number} byteSize
-     * @property {GLenum} type
+     * @returns {{byteSize: number, type: GLenum}}
      */
     static _getBufferSpecs(gl, bufferArray) {
         if (bufferArray instanceof Uint8Array) {

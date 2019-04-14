@@ -14,7 +14,7 @@
 export class _RenderCommand {
     /**
      * @param {Object} properties
-     * @property {number} [inclusionFlags=~0]
+     * @param {number} [properties.inclusionFlags=~0]
      */
     constructor({inclusionFlags=~0}) {
         this.inclusionFlags = inclusionFlags;

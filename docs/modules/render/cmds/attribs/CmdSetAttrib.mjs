@@ -9,11 +9,11 @@ export class CmdSetAttrib extends _RenderCommand {
     /**
      * @param {string} attribName
      * @param {string} bufferName
-     * @param {Object} properties
-     * @property {number} [size]
-     * @property {boolean} [normalized=false]
-     * @property {number} [stride=0]
-     * @property {number} [offset=0]
+     * @param {Object} [properties={}]
+     * @param {number} [properties.size]
+     * @param {boolean} [properties.normalized=false]
+     * @param {number} [properties.stride=0]
+     * @param {number} [properties.offset=0]
      */
     constructor(attribName, bufferName, {size, normalized=false, stride=0, offset=0, ...rest}={}) {
         super(rest);

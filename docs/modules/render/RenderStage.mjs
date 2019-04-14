@@ -12,13 +12,13 @@ export class RenderStage {
      * @param {WebGLRenderingContext} gl
      * @param {SceneObject[]} scene
      * @param {Object} properties
-     * @property {number[]} [clearColor=[0.0, 0.0, 0.0, 0.0]]
-     * @property {Mat4} [view=Mat4.identity()]
-     * @property {number} [fieldOfView=90.0]
-     * @property {number} [zNear=1.0]
-     * @property {number} [zFar=Infinity]
-     * @property {boolean} [frameBuffer=false]
-     * @property {number} [inclusionFlags=~0]
+     * @param {number[]} [properties.clearColor=[0.0, 0.0, 0.0, 0.0]]
+     * @param {Mat4} [properties.view=Mat4.identity()]
+     * @param {number} [properties.fieldOfView=90.0]
+     * @param {number} [properties.zNear=1.0]
+     * @param {number} [properties.zFar=Infinity]
+     * @param {boolean} [properties.frameBuffer=false]
+     * @param {number} [properties.inclusionFlags=~0]
      */
     constructor(gl, scene, {
         clearColor = [0.0, 0.0, 0.0, 0.0],
