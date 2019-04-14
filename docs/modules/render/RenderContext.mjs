@@ -17,12 +17,15 @@ export class RenderContext {
         this.aspectX = 1.0;
         this.aspectY = 1.0;
         this.renderStages = [];
+        this.waitReady = null;
 
         this._adjustCanvas(true);
 
         for (const properties of stages) {
             this.renderStages.push(new RenderStage(gl, scene, properties));
         }
+
+        this.waitReady = Promise.all(this.renderStages.map(stage => stage.waitReady));
     }
 
     /**

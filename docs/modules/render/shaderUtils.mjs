@@ -4,26 +4,19 @@
  * Load shader source code from a web site resource
  *
  * @param {string} url
- * @param {string} mime
  *
- * @returns {string}
+ * @returns {Promise<string>}
  */
-function loadShader(url, mime) {
-    /** @type {XMLHttpRequest} */
-    const request = new XMLHttpRequest();
-    request.open('GET', url, false);
-    request.overrideMimeType(mime || 'text/plain');
-    request.setRequestHeader('Cache-Control', 'no-cache');
-    request.send(null);
+async function loadShader(url) { // jshint ignore:line
+    /** @type {Response} */
+    const response = await fetch(url, {cache: 'default'}); // jshint ignore:line
 
-    if (request.status !== loadShader._HTTP_STATUS_OK) {
-        throw Error(request.statusText);
+    if (!response.ok) {
+        throw Error(`Error fetching ${url}: ${response.status} ${response.statusText}`);
     }
 
-    return request.responseText;
+    return await response.text(); // jshint ignore:line
 }
-
-loadShader._HTTP_STATUS_OK = 200;
 
 /**
  * Compile a shader from source code
@@ -32,9 +25,9 @@ loadShader._HTTP_STATUS_OK = 200;
  * @param {GLenum} type
  * @param {string} source
  *
- * @returns {WebGLShader}
+ * @returns {Promise<WebGLShader>}
  */
-function createShader(gl, type, source) {
+async function createShader(gl, type, source) { // jshint ignore:line
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
@@ -48,27 +41,26 @@ function createShader(gl, type, source) {
     return shader;
 }
 
+const _vertexShaderCache = new Map();
+
 /**
  * Create a vertex shader from a URL
  *
  * @param {WebGLRenderingContext} gl
  * @param {string} url
  *
- * @returns {WebGLShader}
+ * @returns {Promise<WebGLShader>}
  */
-function createVertexShader(gl, url) {
+async function createVertexShader(gl, url) { // jshint ignore:line
     const normalizedURL = new URL(url, window.location.href);
-    let source = createVertexShader._cache.get(normalizedURL);
+    // let source = createVertexShader._cache.get(normalizedURL);
 
-    if (source === undefined) {
-        source = loadShader(url, 'x-shader/x-vertex');
-        createVertexShader._cache.set(normalizedURL, source);
-    }
+    const source = await loadShader(url); // jshint ignore:line
 
-    return createShader(gl, gl.VERTEX_SHADER, source);
+    return await createShader(gl, gl.VERTEX_SHADER, source); // jshint ignore:line
 }
 
-createVertexShader._cache = new Map();
+const _fragmentShaderCache = new Map();
 
 /**
  * Create a fragment shader from a URL
@@ -76,21 +68,16 @@ createVertexShader._cache = new Map();
  * @param {WebGLRenderingContext} gl
  * @param {string} url
  *
- * @returns {WebGLShader}
+ * @returns {Promise<WebGLShader>}
  */
-function createFragmentShader(gl, url) {
+async function createFragmentShader(gl, url) { // jshint ignore:line
     const normalizedURL = new URL(url, window.location.href);
-    let source = createFragmentShader._cache.get(normalizedURL);
+    // let source = createFragmentShader._cache.get(normalizedURL);
 
-    if (source === undefined) {
-        source = loadShader(url, 'x-shader/x-fragment');
-        createFragmentShader._cache.set(normalizedURL, source);
-    }
+    const source = await loadShader(url); // jshint ignore:line
 
-    return createShader(gl, gl.FRAGMENT_SHADER, source);
+    return await createShader(gl, gl.FRAGMENT_SHADER, source); // jshint ignore:line
 }
-
-createFragmentShader._cache = new Map();
 
 /**
  * Create a shader program from compiled vertex and fragment shaders
@@ -98,9 +85,9 @@ createFragmentShader._cache = new Map();
  * @param {WebGLRenderingContext} gl
  * @param {WebGLShader[]} shaders
  *
- * @returns {WebGLProgram}
+ * @returns {Promise<WebGLProgram>}
  */
-function createProgram(gl, shaders) {
+async function createProgram(gl, shaders) { // jshint ignore:line
     const program = gl.createProgram();
 
     for (const shader of shaders) {
@@ -131,15 +118,20 @@ function createProgram(gl, shaders) {
  * @param {string} vertexShaderUrl
  * @param {string} fragmentShaderUrl
  *
- * @returns {WebGLProgram}
+ * @returns {Promise<WebGLProgram>}
  */
-export function compileAndLinkProgram(gl, vertexShaderUrl, fragmentShaderUrl) {
+export async function compileAndLinkProgram(gl, vertexShaderUrl, fragmentShaderUrl) { // jshint ignore:line
     const shaders = [];
 
+    // noinspection ES6MissingAwait
+    const vertexShaderPromise = createVertexShader(gl, vertexShaderUrl); // jshint ignore:line
+    // noinspection ES6MissingAwait
+    const fragmentShaderPromise = createFragmentShader(gl, fragmentShaderUrl); // jshint ignore:line
+
     try {
-        shaders.push(createVertexShader(gl, vertexShaderUrl));
-        shaders.push(createFragmentShader(gl, fragmentShaderUrl));
-        return createProgram(gl, shaders);
+        shaders.push(await vertexShaderPromise); // jshint ignore:line
+        shaders.push(await fragmentShaderPromise); // jshint ignore:line
+        return await createProgram(gl, shaders); // jshint ignore:line
     }
     catch (e) {
         for (const shader of shaders) {

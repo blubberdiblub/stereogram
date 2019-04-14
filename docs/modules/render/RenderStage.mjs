@@ -39,6 +39,7 @@ export class RenderStage {
         this.projection = null;
         this.frameBuffer = null;
         this.renderObjects = [];
+        this.waitReady = null;
 
         this._fieldOfView = NaN;
         this._viewRange = NaN;
@@ -68,6 +69,8 @@ export class RenderStage {
 
             this.renderObjects.push(renderObject);
         }
+
+        this.waitReady = Promise.all(this.renderObjects.map(obj => obj.waitReady));
     }
 
     /**
@@ -166,11 +169,7 @@ export class RenderStage {
         gl.enable(gl.DEPTH_TEST);
 
         for (const obj of this.renderObjects) {
-            gl.useProgram(obj.program);
-
-            for (const command of obj.preparedCommands) {
-                command(gl);
-            }
+            obj.render(gl);
         }
     }
 }

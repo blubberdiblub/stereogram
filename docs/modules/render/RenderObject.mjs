@@ -23,22 +23,39 @@ export class RenderObject {
         vertexShaderUrl = 'shaders/vertex.vert',
         fragmentShaderUrl = 'shaders/fragment.frag',
     }) {
+        const relevantCommands = sceneObject.renderCommands
+            .filter(command => command.inclusionFlags & inclusionFlags);
+
         this.sceneObject = sceneObject;
-        this.program = compileAndLinkProgram(gl, vertexShaderUrl, fragmentShaderUrl);
         this.uniforms = new Map();
         this.attribs = new Map();
         this.attribBuffers = new Map();
         this.elementBuffers = new Map();
         this.preparedCommands = [];
+        this.program = null;
+        this.waitReady = this._completeAsync(gl, relevantCommands, renderStage, vertexShaderUrl, fragmentShaderUrl);
+    }
 
-        RenderObject._determineUniforms(this.uniforms, gl, this.program);
-        RenderObject._determineAttribs(this.attribs, gl, this.program);
+    /**
+     * Wait for shader program to be ready, then initialize remaining properties.
+     *
+     * @private
+     *
+     * @param {WebGLRenderingContext} gl
+     * @param {_RenderCommand[]} commands
+     * @param {RenderStage} renderStage
+     * @param {string} vertexShaderUrl
+     * @param {string} fragmentShaderUrl
+     *
+     * @returns {Promise<void>}
+     */
+    async _completeAsync(gl, commands, renderStage, vertexShaderUrl, fragmentShaderUrl) { // jshint ignore:line
+        const program = await compileAndLinkProgram(gl, vertexShaderUrl, fragmentShaderUrl); // jshint ignore:line
+        RenderObject._determineUniforms(this.uniforms, gl, program);
+        RenderObject._determineAttribs(this.attribs, gl, program);
 
-        const relevantCommands = this.sceneObject.renderCommands
-            .filter(command => command.inclusionFlags & inclusionFlags);
-
-        const usedAttribBuffers = RenderObject._determineUsedAttribBuffers(relevantCommands, this.attribs);
-        const usedElementBuffers = RenderObject._determineUsedElementBuffers(relevantCommands);
+        const usedAttribBuffers = RenderObject._determineUsedAttribBuffers(commands, this.attribs);
+        const usedElementBuffers = RenderObject._determineUsedElementBuffers(commands);
 
         RenderObject._allocateAttribBuffers(this.attribBuffers, gl,
             usedAttribBuffers, this.sceneObject.attribArrays);
@@ -46,9 +63,11 @@ export class RenderObject {
         RenderObject._allocateElementBuffers(this.elementBuffers, gl,
             usedElementBuffers, this.sceneObject.elementArrays);
 
-        for (const command of relevantCommands) {
+        for (const command of commands) {
             this.preparedCommands.push(...command.prepare(this, renderStage));
         }
+
+        this.program = program;
     }
 
     /**
@@ -263,5 +282,22 @@ export class RenderObject {
         }
 
         throw Error("unsupported buffer array type");
+    }
+
+    /**
+     * Render this object's prepared commands in a WebGL context
+     *
+     * @param {WebGLRenderingContext} gl
+     */
+    render(gl) {
+        if (this.program === null) {
+            return;
+        }
+
+        gl.useProgram(this.program);
+
+        for (const command of this.preparedCommands) {
+            command(gl);
+        }
     }
 }
