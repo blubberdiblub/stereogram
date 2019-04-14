@@ -28,8 +28,12 @@ function startAnimationLoop(scene, renderContexts) {
             obj.matrix = rot;
         }
 
-        for (const ctx of renderContexts) {
-            ctx.render();
+        try {
+            for (const ctx of renderContexts) {
+                ctx.render();
+            }
+        } catch (e) {
+            console.error(e);
         }
 
         then = now;
@@ -126,6 +130,32 @@ window.addEventListener('load', () => {
                 inclusionFlags: renderInclusion.NORMAL | renderInclusion.EYE_VIEW,
             }
         ),
+        new render.SceneObject(
+            [
+                new render.CmdSetAttrib('a_position', 'main', {
+                    size: 2,
+                }),
+                new render.CmdDrawElements('main', render.drawMode.TRIANGLE_STRIP),
+            ],
+            {
+                main: {
+                    data: [
+                        -1, -1,
+                         1, -1,
+                        -1,  1,
+                         1,  1,
+                    ],
+                },
+            },
+            {
+                main: {
+                    indices: [0, 1, 2, 3],
+                },
+            },
+            {
+                inclusionFlags: renderInclusion.STEREOGRAM,
+            }
+        ),
     ];
 
     const contextDescriptions = new Map([
@@ -177,20 +207,19 @@ window.addEventListener('load', () => {
                 inclusionFlags: renderInclusion.EYE_VIEW,
                 frameBuffer: true,
             },
-/*
             {
-                view: Mat4.translation(0.0, 0.0, 2.0),
-                fragmentShaderUrl: 'shaders/depthmap.frag',
-                clearColor: [1.0, 1.0, 1.0, 1.0,],
+                vertexShaderUrl: 'shaders/plain.vert',
+                fragmentShaderUrl: 'shaders/stereogram.frag',
+                clearColor: [0.0, 1.0, 0.0, 1.0,],
                 zNear: 1.0,
                 zFar: 3.0,
                 inclusionFlags: renderInclusion.STEREOGRAM,
             }
-*/
         ]],
     ]);
 
     const renderContexts = render.buildRenderContexts(scene, contextDescriptions);
     const waitReady = Promise.all(renderContexts.map(context => context.waitReady));
-    waitReady.then(() => startAnimationLoop(scene, renderContexts));
+    waitReady.then(() => startAnimationLoop(scene, renderContexts),
+        (e) => {console.error(e);});
 });

@@ -51,12 +51,7 @@ export class RenderStage {
         this._initPerspective();
 
         if (frameBuffer) {
-            this.frameBuffer = gl.createFramebuffer();
-            gl.bindFramebuffer(gl.FRAMEBUFFER, this.frameBuffer);
-
-            // TODO: fill in
-
-            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            this._initFramebuffer(gl);
         }
 
         for (const sceneObject of scene) {
@@ -71,6 +66,44 @@ export class RenderStage {
         }
 
         this.waitReady = Promise.all(this.renderObjects.map(obj => obj.waitReady));
+    }
+
+    /**
+     * Allocate FBO and related resources
+     *
+     * @private
+     *
+     * @param {WebGLRenderingContext} gl
+     */
+    _initFramebuffer(gl) {
+        const ext = gl.getExtension('WEBGL_depth_texture');
+        if (ext === null) {
+            throw Error("Missing depth texture extension");
+        }
+
+        this.texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this.texture);
+        gl.texImage2D(
+            gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT,
+            gl.drawingBufferWidth, gl.drawingBufferHeight, 0,
+            gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT, null
+        );
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+
+        this.frameBuffer = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.frameBuffer);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, this.texture, 0);
+        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+            throw RangeError("invalid framebuffer parameters");
+        }
+
+        // TODO: fill in
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }
 
     /**
@@ -162,6 +195,11 @@ export class RenderStage {
         this._adjustPerspectiveXY(aspectX, aspectY);
         this._adjustPerspectiveZW();
 
+        if (this.frameBuffer !== null) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this.frameBuffer);
+            gl.bindTexture(gl.TEXTURE_2D, this.texture);
+        }
+
         gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
         gl.clearColor(...this.clearColor);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -170,6 +208,10 @@ export class RenderStage {
 
         for (const obj of this.renderObjects) {
             obj.render(gl);
+        }
+
+        if (this.frameBuffer !== null) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         }
     }
 }
