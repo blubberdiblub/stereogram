@@ -50,7 +50,7 @@ window.addEventListener('load', () => {
          */
         const renderInclusion = {
             NORMAL: 1 << 0,
-            EYE_DEMO: 1 << 1,
+            EYE_VIEW: 1 << 1,
             STEREOGRAM: 1 << 2,
         };
 
@@ -123,6 +123,9 @@ window.addEventListener('load', () => {
                             20, 21, 22,   23, 22, 21,
                         ],
                     },
+                },
+                {
+                    inclusionFlags: renderInclusion.NORMAL | renderInclusion.EYE_VIEW,
                 }
             ),
         ];
@@ -132,9 +135,9 @@ window.addEventListener('load', () => {
                 {
                     view: Mat4.translation(0.0, 0.0, 2.0),
                     fragmentShaderUrl: 'shaders/fragment.frag',
-                    inclusionFlags: renderInclusion.NORMAL,
                     zNear: 1.0,
                     zFar: 3.0,
+                    inclusionFlags: renderInclusion.NORMAL,
                 }
             ]],
             ['#left_eye', [
@@ -142,9 +145,9 @@ window.addEventListener('load', () => {
                     view: Mat4.translation(0.25, 0.0, 2.0),
                     fragmentShaderUrl: 'shaders/depthmap.frag',
                     clearColor: [1.0, 1.0, 1.0, 1.0,],
-                    inclusionFlags: renderInclusion.EYE_DEMO,
                     zNear: 1.0,
                     zFar: 3.0,
+                    inclusionFlags: renderInclusion.EYE_VIEW,
                 }
             ]],
             ['#right_eye', [
@@ -152,20 +155,40 @@ window.addEventListener('load', () => {
                     view: Mat4.translation(-0.25, 0.0, 2.0),
                     fragmentShaderUrl: 'shaders/depthmap.frag',
                     clearColor: [1.0, 1.0, 1.0, 1.0,],
-                    inclusionFlags: renderInclusion.EYE_DEMO,
                     zNear: 1.0,
                     zFar: 3.0,
+                    inclusionFlags: renderInclusion.EYE_VIEW,
                 }
             ]],
             ['#stereogram', [
                 {
+                    view: Mat4.translation(0.25, 0.0, 2.0),
+                    fragmentShaderUrl: 'shaders/depthmap.frag',
+                    clearColor: [1.0, 1.0, 1.0, 1.0,],
+                    zNear: 1.0,
+                    zFar: 3.0,
+                    inclusionFlags: renderInclusion.EYE_VIEW,
+                    frameBuffer: true,
+                },
+                {
+                    view: Mat4.translation(-0.25, 0.0, 2.0),
+                    fragmentShaderUrl: 'shaders/depthmap.frag',
+                    clearColor: [1.0, 1.0, 1.0, 1.0,],
+                    zNear: 1.0,
+                    zFar: 3.0,
+                    inclusionFlags: renderInclusion.EYE_VIEW,
+                    frameBuffer: true,
+                },
+/*
+                {
                     view: Mat4.translation(0.0, 0.0, 2.0),
                     fragmentShaderUrl: 'shaders/depthmap.frag',
                     clearColor: [1.0, 1.0, 1.0, 1.0,],
-                    inclusionFlags: renderInclusion.STEREOGRAM,
                     zNear: 1.0,
                     zFar: 3.0,
+                    inclusionFlags: renderInclusion.STEREOGRAM,
                 }
+*/
             ]],
         ]);
 
